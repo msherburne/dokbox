@@ -1,4 +1,5 @@
 from datetime import datetime
+import re
 
 
 def format_bytes(value: int | float | None) -> str:
@@ -29,5 +30,6 @@ def format_timestamp(value: str | None) -> str:
     if not value:
         return "-"
     normalized = value.replace("Z", "+00:00")
+    normalized = re.sub(r"\.(\d{6})\d+(?=[+-]\d{2}:\d{2}$)", r".\1", normalized)
     parsed = datetime.fromisoformat(normalized)
     return parsed.strftime("%Y-%m-%d %H:%M")

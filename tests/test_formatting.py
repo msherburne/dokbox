@@ -21,6 +21,9 @@ class FormattingTest(unittest.TestCase):
     def test_format_timestamp_handles_empty_values(self):
         self.assertEqual(format_timestamp(None), "-")
         self.assertEqual(format_timestamp("2026-06-19T04:00:00Z"), "2026-06-19 04:00")
+        self.assertEqual(
+            format_timestamp("2026-06-10T20:42:51.498025999Z"), "2026-06-10 20:42"
+        )
 
 
 if __name__ == "__main__":
