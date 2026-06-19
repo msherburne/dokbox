@@ -51,6 +51,15 @@ class UiSmokeTest(unittest.TestCase):
 
         self.assertIs(app.docker_service, service)
 
+    def test_container_detail_screen_stores_container_id(self):
+        from ui.screens import ContainerDetailScreen
+
+        service = object()
+        screen = ContainerDetailScreen(service, "abc")
+
+        self.assertEqual(screen.container_id, "abc")
+        self.assertIs(screen.docker_service, service)
+
 
 if __name__ == "__main__":
     unittest.main()

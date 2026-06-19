@@ -1,12 +1,20 @@
 from textual.app import ComposeResult
 from textual.containers import Center, Middle, Vertical
 from textual.screen import ModalScreen, Screen
-from textual.widgets import Button, Footer, Header, Label, TabbedContent, TabPane
+from textual.widgets import (
+    Button,
+    Footer,
+    Header,
+    Label,
+    Static,
+    TabbedContent,
+    TabPane,
+)
 
 from models.docker_resources import DockerResourceKind
 from services.docker_service import DockerService
 from ui.widgets import ShortcutBar, build_resource_table
-from view_models.resources import get_shortcuts
+from view_models.resources import build_metric_card, get_shortcuts
 
 
 class ConfirmActionDialog(ModalScreen[bool]):
@@ -51,3 +59,31 @@ class ResourceBrowserScreen(Screen):
                         )
         yield ShortcutBar(get_shortcuts("containers"))
         yield Footer()
+
+
+class ContainerDetailScreen(Screen):
+    def __init__(self, docker_service: DockerService, container_id: str):
+        super().__init__()
+        self.docker_service = docker_service
+        self.container_id = container_id
+
+    def compose(self) -> ComposeResult:
+        yield Header(show_clock=True)
+        with TabbedContent(initial="overview"):
+            with TabPane("Overview", id="overview"):
+                for metric in self.docker_service.get_container_metrics(
+                    self.container_id
+                ):
+                    card = build_metric_card(metric)
+                    yield Static(f"{card.title}: {card.value}\n{card.bar}")
+            with TabPane("Logs", id="logs"):
+                yield Static("Logs stream loads when selected.")
+            with TabPane("Shell", id="shell"):
+                yield Static("Shell starts when selected.")
+            with TabPane("Files", id="files"):
+                yield Static("Read-only file explorer loads when selected.")
+        yield ShortcutBar(get_shortcuts("containers"))
+        yield Footer()
+
+    def action_back(self) -> None:
+        self.app.pop_screen()
