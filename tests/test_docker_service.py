@@ -1,7 +1,7 @@
 import sys
 import unittest
 from pathlib import Path
-from unittest.mock import Mock
+from unittest.mock import Mock, call
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
@@ -59,11 +59,54 @@ class DockerServiceTest(unittest.TestCase):
         service.restart_container("abc")
         service.remove_resource(DockerResourceKind.CONTAINER, "abc")
 
-        client.containers.get.assert_called_with("abc")
+        self.assertEqual(
+            client.containers.get.call_args_list,
+            [call("abc"), call("abc"), call("abc"), call("abc")],
+        )
         container.start.assert_called_once()
         container.stop.assert_called_once()
         container.restart.assert_called_once()
         container.remove.assert_called_once()
+
+    def test_remove_image_routes_to_images_remove(self):
+        client = Mock()
+        service = DockerService(client)
+
+        service.remove_resource(DockerResourceKind.IMAGE, "img")
+
+        client.images.remove.assert_called_once_with("img")
+
+    def test_remove_volume_routes_to_volume_remove(self):
+        volume = Mock()
+        client = Mock()
+        client.volumes.get.return_value = volume
+        service = DockerService(client)
+
+        service.remove_resource(DockerResourceKind.VOLUME, "vol")
+
+        client.volumes.get.assert_called_once_with("vol")
+        volume.remove.assert_called_once()
+
+    def test_remove_network_routes_to_network_remove(self):
+        network = Mock()
+        client = Mock()
+        client.networks.get.return_value = network
+        service = DockerService(client)
+
+        service.remove_resource(DockerResourceKind.NETWORK, "net")
+
+        client.networks.get.assert_called_once_with("net")
+        network.remove.assert_called_once()
+
+    def test_connection_check_returns_connected_after_ping(self):
+        client = Mock()
+        service = DockerService(client)
+
+        result = service.check_connection()
+
+        client.ping.assert_called_once()
+        self.assertTrue(result.ok)
+        self.assertEqual(result.message, "Connected")
 
     def test_connection_check_returns_message_instead_of_raising(self):
         client = Mock()
