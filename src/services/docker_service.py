@@ -1,4 +1,5 @@
 from collections.abc import Iterable
+from dataclasses import dataclass
 from typing import Any
 
 from docker.client import DockerClient
@@ -7,9 +8,22 @@ from models.docker_resources import DockerResourceKind, ResourceSummary
 from view_models.formatting import format_bytes, format_timestamp
 
 
+@dataclass(frozen=True)
+class ConnectionStatus:
+    ok: bool
+    message: str
+
+
 class DockerService:
     def __init__(self, client: DockerClient):
         self.client = client
+
+    def check_connection(self) -> ConnectionStatus:
+        try:
+            self.client.ping()
+        except Exception as exc:
+            return ConnectionStatus(ok=False, message=str(exc))
+        return ConnectionStatus(ok=True, message="Connected")
 
     def list_resources(self, kind: DockerResourceKind) -> list[ResourceSummary]:
         if kind == DockerResourceKind.CONTAINER:
@@ -121,6 +135,30 @@ class DockerService:
         if kind == DockerResourceKind.NETWORK:
             return self.client.networks.prune()
         raise ValueError(f"Unsupported prune kind: {kind}")
+
+    def start_container(self, container_id: str) -> None:
+        self.client.containers.get(container_id).start()
+
+    def stop_container(self, container_id: str) -> None:
+        self.client.containers.get(container_id).stop()
+
+    def restart_container(self, container_id: str) -> None:
+        self.client.containers.get(container_id).restart()
+
+    def remove_resource(self, kind: DockerResourceKind, resource_id: str) -> None:
+        if kind == DockerResourceKind.CONTAINER:
+            self.client.containers.get(resource_id).remove()
+            return
+        if kind == DockerResourceKind.IMAGE:
+            self.client.images.remove(resource_id)
+            return
+        if kind == DockerResourceKind.VOLUME:
+            self.client.volumes.get(resource_id).remove()
+            return
+        if kind == DockerResourceKind.NETWORK:
+            self.client.networks.get(resource_id).remove()
+            return
+        raise ValueError(f"Unsupported remove kind: {kind}")
 
 
 def _first_tag(tags: Iterable[str]) -> str:

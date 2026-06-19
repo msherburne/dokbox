@@ -48,6 +48,33 @@ class DockerServiceTest(unittest.TestCase):
         client.images.prune.assert_called_once()
         client.containers.prune.assert_not_called()
 
+    def test_container_lifecycle_actions_route_to_selected_container(self):
+        container = Mock()
+        client = Mock()
+        client.containers.get.return_value = container
+        service = DockerService(client)
+
+        service.start_container("abc")
+        service.stop_container("abc")
+        service.restart_container("abc")
+        service.remove_resource(DockerResourceKind.CONTAINER, "abc")
+
+        client.containers.get.assert_called_with("abc")
+        container.start.assert_called_once()
+        container.stop.assert_called_once()
+        container.restart.assert_called_once()
+        container.remove.assert_called_once()
+
+    def test_connection_check_returns_message_instead_of_raising(self):
+        client = Mock()
+        client.ping.side_effect = RuntimeError("cannot connect")
+        service = DockerService(client)
+
+        result = service.check_connection()
+
+        self.assertFalse(result.ok)
+        self.assertEqual(result.message, "cannot connect")
+
 
 if __name__ == "__main__":
     unittest.main()
