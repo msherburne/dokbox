@@ -185,6 +185,50 @@ class DockerServiceTest(unittest.TestCase):
 
         self.assertAlmostEqual(metrics[0].value, 1.68)
 
+    def test_stream_logs_decodes_bytes(self):
+        container = Mock()
+        container.logs.return_value = iter([b"hello\n", b"world\n"])
+        client = Mock()
+        client.containers.get.return_value = container
+        service = DockerService(client)
+
+        lines = list(service.stream_logs("abc", follow=True))
+
+        self.assertEqual([line.text for line in lines], ["hello", "world"])
+        container.logs.assert_called_once_with(stream=True, follow=True, tail=200)
+
+    def test_open_shell_prefers_bash(self):
+        container = Mock()
+        container.exec_run.return_value = (0, b"")
+        client = Mock()
+        client.containers.get.return_value = container
+        client.api.exec_create.return_value = {"Id": "exec-1"}
+        client.api.exec_start.return_value = iter([b"$ "])
+        service = DockerService(client)
+
+        session = service.open_shell("abc")
+
+        self.assertEqual(session.command, ("/bin/bash",))
+        client.api.exec_create.assert_called_once_with(
+            "abc", cmd=["/bin/bash"], stdin=True, tty=True
+        )
+
+    def test_list_container_directory_uses_archive_stat(self):
+        container = Mock()
+        container.get_archive.return_value = (
+            iter([]),
+            {"name": "app", "mode": 16877, "size": 0, "linkTarget": ""},
+        )
+        client = Mock()
+        client.containers.get.return_value = container
+        service = DockerService(client)
+
+        entries = service.list_container_path("abc", "/app")
+
+        self.assertEqual(entries[0].path, "/app")
+        self.assertEqual(entries[0].name, "app")
+        self.assertTrue(entries[0].is_dir)
+
 
 if __name__ == "__main__":
     unittest.main()

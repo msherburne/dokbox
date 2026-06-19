@@ -1,10 +1,18 @@
-from collections.abc import Iterable
+from collections.abc import Iterable, Iterator
 from dataclasses import dataclass
+from stat import S_ISDIR
 from typing import Any
 
 from docker.client import DockerClient
 
-from models.docker_resources import DockerResourceKind, MetricSample, ResourceSummary
+from models.docker_resources import (
+    DockerResourceKind,
+    ExecSession,
+    FileEntry,
+    LogLine,
+    MetricSample,
+    ResourceSummary,
+)
 from view_models.formatting import format_bytes, format_timestamp
 
 
@@ -182,6 +190,41 @@ class DockerService:
                 unit="bytes",
                 label=format_bytes(_blkio_total(stats, "Read")),
             ),
+        ]
+
+    def stream_logs(
+        self, container_id: str, follow: bool = True, tail: int = 200
+    ) -> Iterator[LogLine]:
+        container = self.client.containers.get(container_id)
+        for chunk in container.logs(stream=True, follow=follow, tail=tail):
+            yield LogLine(text=chunk.decode(errors="replace").rstrip("\n"))
+
+    def open_shell(self, container_id: str) -> ExecSession:
+        container = self.client.containers.get(container_id)
+        command = ["/bin/bash"]
+        exit_code, _output = container.exec_run(["test", "-x", "/bin/bash"])
+        if exit_code != 0:
+            command = ["/bin/sh"]
+        exec_info = self.client.api.exec_create(
+            container_id, cmd=command, stdin=True, tty=True
+        )
+        stream = self.client.api.exec_start(
+            exec_info["Id"], stream=True, socket=False, tty=True
+        )
+        return ExecSession(command=tuple(command), stream=stream)
+
+    def list_container_path(self, container_id: str, path: str) -> list[FileEntry]:
+        container = self.client.containers.get(container_id)
+        _stream, stat = container.get_archive(path)
+        mode = stat.get("mode", 0)
+        return [
+            FileEntry(
+                path=path,
+                name=stat.get("name") or path.rsplit("/", 1)[-1] or "/",
+                is_dir=S_ISDIR(mode),
+                size=stat.get("size", 0),
+                mode=oct(mode),
+            )
         ]
 
     def remove_resource(self, kind: DockerResourceKind, resource_id: str) -> None:
