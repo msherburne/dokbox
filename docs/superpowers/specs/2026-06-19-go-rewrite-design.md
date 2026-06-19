@@ -60,6 +60,22 @@ The rewrite target is “everything we currently have, re-implemented in Go,” 
 
 If implementation uncovers unclear behavior in the Python app, the Go version should follow the Python runtime unless there is a compelling reason to intentionally simplify or improve the behavior.
 
+## Configuration Parity
+
+The Go rewrite should preserve the current configuration model and user flow unless there is an explicit later ticket to change it.
+
+Current Python behavior to preserve:
+
+- config is stored at `~/.dokbox.json`
+- config currently contains `config_version` and `docker_host`
+- startup attempts to load and migrate the current config before generating defaults
+- migration behavior should continue to backfill missing `config_version`
+- when no config exists, the app should detect a default Docker host and build a default config
+- the generated default config should be shown to the user before asking whether to save it
+- saving the generated config should remain a user-confirmed action rather than an automatic side effect
+
+The Go implementation may use idiomatic Go structures and JSON handling, but the observable startup/configuration behavior should remain similar enough that existing users are not surprised.
+
 ## Proposed Go Architecture
 
 ### 1. App Shell
@@ -74,6 +90,8 @@ Create a top-level Bubble Tea model that owns:
 - shared error/status messaging
 
 This top-level model acts as the coordinator rather than embedding Docker logic directly.
+
+Startup should route through a configuration bootstrap path that mirrors the current Python flow before the main resource browser is initialized.
 
 ### 2. Domain Layer
 
@@ -169,7 +187,7 @@ Examples:
 The recommended delivery order is:
 
 1. Bootable Go app shell
-2. Docker connection and container browser
+2. Configuration bootstrap and Docker connection
 3. Full resource browser parity
 4. Container workflows and deeper operational views
 5. Packaging, release, and runtime cutover
