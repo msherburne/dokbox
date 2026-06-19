@@ -241,13 +241,16 @@ def _network_flags(attrs: dict[str, Any]) -> str:
 def _calculate_cpu_cores(stats: dict[str, Any]) -> float:
     cpu_stats = stats.get("cpu_stats", {})
     precpu_stats = stats.get("precpu_stats", {})
-    cpu_delta = cpu_stats.get("cpu_usage", {}).get("total_usage", 0) - precpu_stats.get(
-        "cpu_usage", {}
-    ).get("total_usage", 0)
+    cpu_usage = cpu_stats.get("cpu_usage", {})
+    cpu_delta = cpu_usage.get("total_usage", 0) - precpu_stats.get("cpu_usage", {}).get(
+        "total_usage", 0
+    )
     system_delta = cpu_stats.get("system_cpu_usage", 0) - precpu_stats.get(
         "system_cpu_usage", 0
     )
-    online_cpus = cpu_stats.get("online_cpus") or 1
+    online_cpus = (
+        cpu_stats.get("online_cpus") or len(cpu_usage.get("percpu_usage", [])) or 1
+    )
     if system_delta <= 0:
         return 0.0
     return (cpu_delta / system_delta) * online_cpus

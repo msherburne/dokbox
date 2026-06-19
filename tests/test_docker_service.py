@@ -148,11 +148,42 @@ class DockerServiceTest(unittest.TestCase):
 
         metrics = service.get_container_metrics("abc")
 
+        container.stats.assert_called_once_with(stream=False)
         self.assertEqual(metrics[0].name, "CPU")
+        self.assertAlmostEqual(metrics[0].value, 1.68)
         self.assertEqual(metrics[0].limit, 1.5)
         self.assertIn("of 1.5 cores", metrics[0].label)
         self.assertEqual(metrics[1].name, "Memory")
+        self.assertEqual(metrics[1].value, 536870912)
         self.assertEqual(metrics[1].limit, 1073741824)
+        self.assertEqual(metrics[2].name, "Network RX")
+        self.assertEqual(metrics[2].value, 1000)
+        self.assertEqual(metrics[3].name, "Disk Read")
+        self.assertEqual(metrics[3].value, 4096)
+
+    def test_container_metrics_use_percpu_count_when_online_cpus_missing(self):
+        container = Mock()
+        container.attrs = {"HostConfig": {}}
+        container.stats.return_value = {
+            "cpu_stats": {
+                "cpu_usage": {
+                    "total_usage": 1420,
+                    "percpu_usage": [100, 200, 300, 400],
+                },
+                "system_cpu_usage": 10000,
+            },
+            "precpu_stats": {
+                "cpu_usage": {"total_usage": 1000},
+                "system_cpu_usage": 9000,
+            },
+        }
+        client = Mock()
+        client.containers.get.return_value = container
+        service = DockerService(client)
+
+        metrics = service.get_container_metrics("abc")
+
+        self.assertAlmostEqual(metrics[0].value, 1.68)
 
 
 if __name__ == "__main__":
