@@ -1,12 +1,28 @@
 from textual.app import ComposeResult
-from textual.containers import Vertical
-from textual.screen import Screen
-from textual.widgets import Footer, Header, Label, TabbedContent, TabPane
+from textual.containers import Center, Middle, Vertical
+from textual.screen import ModalScreen, Screen
+from textual.widgets import Button, Footer, Header, Label, TabbedContent, TabPane
 
 from models.docker_resources import DockerResourceKind
 from services.docker_service import DockerService
 from ui.widgets import ShortcutBar, build_resource_table
 from view_models.resources import get_shortcuts
+
+
+class ConfirmActionDialog(ModalScreen[bool]):
+    def __init__(self, message: str):
+        super().__init__()
+        self.message = message
+
+    def compose(self) -> ComposeResult:
+        with Center():
+            with Middle():
+                yield Label(self.message)
+                yield Button("Cancel", id="cancel")
+                yield Button("Confirm", id="confirm", variant="error")
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        self.dismiss(event.button.id == "confirm")
 
 
 class ResourceBrowserScreen(Screen):

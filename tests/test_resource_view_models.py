@@ -77,6 +77,10 @@ class ResourceViewModelTest(unittest.TestCase):
         self.assertEqual(card.value, "42% of 1.0 core")
         self.assertEqual(card.bar, "####------ 42%")
 
+    def test_prune_shortcut_exists_for_each_resource_tab(self):
+        for context in ["containers", "images", "volumes", "networks"]:
+            self.assertIn(ShortcutHint("p", "Prune"), get_shortcuts(context))
+
 
 if __name__ == "__main__":
     unittest.main()

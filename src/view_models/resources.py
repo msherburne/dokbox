@@ -54,6 +54,27 @@ def get_shortcuts(context: str) -> list[ShortcutHint]:
             ShortcutHint("/", "Filter"),
             ShortcutHint("q", "Quit"),
         ],
+        "images": [
+            ShortcutHint("Enter", "Details"),
+            ShortcutHint("x", "Remove"),
+            ShortcutHint("p", "Prune"),
+            ShortcutHint("/", "Filter"),
+            ShortcutHint("q", "Quit"),
+        ],
+        "volumes": [
+            ShortcutHint("Enter", "Details"),
+            ShortcutHint("x", "Remove"),
+            ShortcutHint("p", "Prune"),
+            ShortcutHint("/", "Filter"),
+            ShortcutHint("q", "Quit"),
+        ],
+        "networks": [
+            ShortcutHint("Enter", "Details"),
+            ShortcutHint("x", "Remove"),
+            ShortcutHint("p", "Prune"),
+            ShortcutHint("/", "Filter"),
+            ShortcutHint("q", "Quit"),
+        ],
         "files": [
             ShortcutHint("Enter", "Open"),
             ShortcutHint("Backspace", "Up"),
