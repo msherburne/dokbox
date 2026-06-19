@@ -39,6 +39,18 @@ class UiSmokeTest(unittest.TestCase):
         self.assertEqual(table.kind, DockerResourceKind.CONTAINER)
         self.assertEqual(table.resources, resources)
 
+    def test_app_receives_docker_service(self):
+        from main import Dokbox
+        from models.config import DokboxConfig
+
+        service = object()
+        app = Dokbox(
+            DokboxConfig(docker_host="unix:///tmp/docker.sock"),
+            docker_service=service,
+        )
+
+        self.assertIs(app.docker_service, service)
+
 
 if __name__ == "__main__":
     unittest.main()
