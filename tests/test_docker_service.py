@@ -118,6 +118,42 @@ class DockerServiceTest(unittest.TestCase):
         self.assertFalse(result.ok)
         self.assertEqual(result.message, "cannot connect")
 
+    def test_container_metrics_are_limit_aware(self):
+        container = Mock()
+        container.attrs = {
+            "HostConfig": {
+                "NanoCpus": 1_500_000_000,
+                "Memory": 1073741824,
+            }
+        }
+        container.stats.return_value = {
+            "cpu_stats": {
+                "cpu_usage": {"total_usage": 1420},
+                "system_cpu_usage": 10000,
+                "online_cpus": 4,
+            },
+            "precpu_stats": {
+                "cpu_usage": {"total_usage": 1000},
+                "system_cpu_usage": 9000,
+            },
+            "memory_stats": {"usage": 536870912, "limit": 1073741824},
+            "networks": {"eth0": {"rx_bytes": 1000, "tx_bytes": 2000}},
+            "blkio_stats": {
+                "io_service_bytes_recursive": [{"op": "Read", "value": 4096}]
+            },
+        }
+        client = Mock()
+        client.containers.get.return_value = container
+        service = DockerService(client)
+
+        metrics = service.get_container_metrics("abc")
+
+        self.assertEqual(metrics[0].name, "CPU")
+        self.assertEqual(metrics[0].limit, 1.5)
+        self.assertIn("of 1.5 cores", metrics[0].label)
+        self.assertEqual(metrics[1].name, "Memory")
+        self.assertEqual(metrics[1].limit, 1073741824)
+
 
 if __name__ == "__main__":
     unittest.main()

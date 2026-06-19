@@ -4,7 +4,7 @@ from typing import Any
 
 from docker.client import DockerClient
 
-from models.docker_resources import DockerResourceKind, ResourceSummary
+from models.docker_resources import DockerResourceKind, MetricSample, ResourceSummary
 from view_models.formatting import format_bytes, format_timestamp
 
 
@@ -145,6 +145,45 @@ class DockerService:
     def restart_container(self, container_id: str) -> None:
         self.client.containers.get(container_id).restart()
 
+    def get_container_metrics(self, container_id: str) -> list[MetricSample]:
+        container = self.client.containers.get(container_id)
+        stats = container.stats(stream=False)
+        attrs = getattr(container, "attrs", {})
+        cpu_value = _calculate_cpu_cores(stats)
+        cpu_limit = _cpu_limit_cores(attrs)
+        memory_usage = stats.get("memory_stats", {}).get("usage", 0)
+        memory_limit = _memory_limit(attrs, stats)
+        return [
+            MetricSample(
+                name="CPU",
+                value=cpu_value,
+                limit=cpu_limit,
+                unit="cores",
+                label=_cpu_label(cpu_value, cpu_limit),
+            ),
+            MetricSample(
+                name="Memory",
+                value=memory_usage,
+                limit=memory_limit,
+                unit="bytes",
+                label=f"{format_bytes(memory_usage)} / {format_bytes(memory_limit)}",
+            ),
+            MetricSample(
+                name="Network RX",
+                value=_network_total(stats, "rx_bytes"),
+                limit=None,
+                unit="bytes",
+                label=format_bytes(_network_total(stats, "rx_bytes")),
+            ),
+            MetricSample(
+                name="Disk Read",
+                value=_blkio_total(stats, "Read"),
+                limit=None,
+                unit="bytes",
+                label=format_bytes(_blkio_total(stats, "Read")),
+            ),
+        ]
+
     def remove_resource(self, kind: DockerResourceKind, resource_id: str) -> None:
         if kind == DockerResourceKind.CONTAINER:
             self.client.containers.get(resource_id).remove()
@@ -197,3 +236,69 @@ def _network_flags(attrs: dict[str, Any]) -> str:
     if attrs.get("Attachable"):
         flags.append("attachable")
     return ", ".join(flags) if flags else "-"
+
+
+def _calculate_cpu_cores(stats: dict[str, Any]) -> float:
+    cpu_stats = stats.get("cpu_stats", {})
+    precpu_stats = stats.get("precpu_stats", {})
+    cpu_delta = cpu_stats.get("cpu_usage", {}).get("total_usage", 0) - precpu_stats.get(
+        "cpu_usage", {}
+    ).get("total_usage", 0)
+    system_delta = cpu_stats.get("system_cpu_usage", 0) - precpu_stats.get(
+        "system_cpu_usage", 0
+    )
+    online_cpus = cpu_stats.get("online_cpus") or 1
+    if system_delta <= 0:
+        return 0.0
+    return (cpu_delta / system_delta) * online_cpus
+
+
+def _cpu_limit_cores(attrs: dict[str, Any]) -> float | None:
+    host_config = attrs.get("HostConfig", {})
+    nano_cpus = host_config.get("NanoCpus")
+    if nano_cpus:
+        return nano_cpus / 1_000_000_000
+    quota = host_config.get("CpuQuota")
+    period = host_config.get("CpuPeriod")
+    if quota and period and quota > 0 and period > 0:
+        return quota / period
+    cpuset = host_config.get("CpusetCpus")
+    if cpuset:
+        return float(len(_expand_cpuset(cpuset)))
+    return None
+
+
+def _expand_cpuset(value: str) -> set[int]:
+    cpus = set()
+    for part in value.split(","):
+        if "-" in part:
+            start, end = part.split("-", 1)
+            cpus.update(range(int(start), int(end) + 1))
+        elif part:
+            cpus.add(int(part))
+    return cpus
+
+
+def _memory_limit(attrs: dict[str, Any], stats: dict[str, Any]) -> int | None:
+    host_limit = attrs.get("HostConfig", {}).get("Memory")
+    if host_limit:
+        return host_limit
+    return stats.get("memory_stats", {}).get("limit")
+
+
+def _cpu_label(value: float, limit: float | None) -> str:
+    if limit:
+        return f"{value / limit:.0%} of {limit:g} cores"
+    return f"{value:.2f} host cores"
+
+
+def _network_total(stats: dict[str, Any], field: str) -> int:
+    return sum(network.get(field, 0) for network in stats.get("networks", {}).values())
+
+
+def _blkio_total(stats: dict[str, Any], op: str) -> int:
+    return sum(
+        entry.get("value", 0)
+        for entry in stats.get("blkio_stats", {}).get("io_service_bytes_recursive", [])
+        if entry.get("op") == op
+    )
