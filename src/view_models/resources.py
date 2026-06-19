@@ -44,6 +44,15 @@ class ShortcutHint:
 
 
 @dataclass(frozen=True)
+class PaletteEntry:
+    kind: DockerResourceKind
+    resource_id: str
+    title: str
+    subtitle: str
+    search_text: str
+
+
+@dataclass(frozen=True)
 class MetricCard:
     title: str
     value: str
@@ -161,6 +170,11 @@ def get_shortcuts(context: str) -> list[ShortcutHint]:
             ShortcutHint("Left/Right", "Switch Pane"),
             ShortcutHint("q", "Back"),
         ],
+        "command-palette": [
+            ShortcutHint("Up/Down", "Select"),
+            ShortcutHint("Enter", "Open"),
+            ShortcutHint("Esc", "Close"),
+        ],
     }
     return shortcuts[context]
 
@@ -169,3 +183,41 @@ def build_metric_card(metric: MetricSample) -> MetricCard:
     return MetricCard(
         title=metric.name, value=metric.label, bar=format_ratio_bar(metric.ratio)
     )
+
+
+def build_container_palette_entries(
+    resources: list[ResourceSummary],
+) -> list[PaletteEntry]:
+    entries: list[PaletteEntry] = []
+    for resource in resources:
+        stack = resource.group or "Ungrouped"
+        image = resource.columns.get("Image", "-")
+        status = resource.columns.get("Status", resource.columns.get("State", "-"))
+        state = resource.columns.get("State", "")
+        entries.append(
+            PaletteEntry(
+                kind=resource.kind,
+                resource_id=resource.id,
+                title=resource.name,
+                subtitle=f"{stack} | {image} | {status}",
+                search_text=" ".join(
+                    part.casefold()
+                    for part in [resource.name, stack, image, state, status]
+                    if part
+                ),
+            )
+        )
+    return entries
+
+
+def filter_palette_entries(
+    entries: list[PaletteEntry], query: str
+) -> list[PaletteEntry]:
+    tokens = [token for token in query.casefold().split() if token]
+    if not tokens:
+        return entries
+    return [
+        entry
+        for entry in entries
+        if all(token in entry.search_text for token in tokens)
+    ]

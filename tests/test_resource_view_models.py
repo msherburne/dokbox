@@ -7,9 +7,12 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from models.docker_resources import DockerResourceKind, MetricSample, ResourceSummary
 from view_models.resources import (
+    PaletteEntry,
     ShortcutHint,
+    build_container_palette_entries,
     build_metric_card,
     container_cell,
+    filter_palette_entries,
     get_resource_columns,
     get_shortcuts,
     resource_to_row,
@@ -146,3 +149,67 @@ def test_container_detail_shortcuts_show_back_navigation():
 
     assert ShortcutHint("Left/Right", "Switch Pane") in shortcuts
     assert ShortcutHint("q", "Back") in shortcuts
+
+
+def test_container_palette_entries_include_searchable_container_context():
+    resources = [
+        ResourceSummary(
+            kind=DockerResourceKind.CONTAINER,
+            id="abc123456789",
+            name="api",
+            raw={},
+            columns={
+                "Image": "dokbox-api:latest",
+                "State": "running",
+                "Status": "Up 2 hours",
+            },
+            group="atlas",
+        )
+    ]
+
+    entries = build_container_palette_entries(resources)
+
+    assert entries == [
+        PaletteEntry(
+            kind=DockerResourceKind.CONTAINER,
+            resource_id="abc123456789",
+            title="api",
+            subtitle="atlas | dokbox-api:latest | Up 2 hours",
+            search_text="api atlas dokbox-api:latest running up 2 hours",
+        )
+    ]
+
+
+def test_container_palette_filter_matches_name_stack_image_and_status():
+    entries = [
+        PaletteEntry(
+            kind=DockerResourceKind.CONTAINER,
+            resource_id="1",
+            title="api",
+            subtitle="atlas | dokbox-api:latest | Up 2 hours",
+            search_text="api atlas dokbox-api:latest running up 2 hours",
+        ),
+        PaletteEntry(
+            kind=DockerResourceKind.CONTAINER,
+            resource_id="2",
+            title="worker",
+            subtitle="odysseus | dokbox-worker:latest | Exited",
+            search_text="worker odysseus dokbox-worker:latest exited",
+        ),
+    ]
+
+    assert [entry.title for entry in filter_palette_entries(entries, "atlas")] == [
+        "api"
+    ]
+    assert [entry.title for entry in filter_palette_entries(entries, "worker")] == [
+        "worker"
+    ]
+    assert [entry.title for entry in filter_palette_entries(entries, "exited")] == [
+        "worker"
+    ]
+    assert [entry.title for entry in filter_palette_entries(entries, "dokbox-api")] == [
+        "api"
+    ]
+    assert [
+        entry.title for entry in filter_palette_entries(entries, "worker exited")
+    ] == ["worker"]

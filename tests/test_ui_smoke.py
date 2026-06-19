@@ -9,7 +9,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 from textual.app import App
 from textual.containers import Container
 from textual.widgets import Footer
-from textual.widgets import TabbedContent
+from textual.widgets import Input, TabbedContent
 from textual.widgets._tabbed_content import ContentTabs
 
 from models.docker_resources import (
@@ -36,6 +36,37 @@ class _BrowserServiceStub:
         return _OkStatus()
 
     def list_resources(self, kind: DockerResourceKind):
+        if kind == DockerResourceKind.CONTAINER:
+            return [
+                ResourceSummary(
+                    kind=kind,
+                    id="container-1",
+                    name="api",
+                    raw={},
+                    columns={
+                        "Image": "dokbox-api:latest",
+                        "State": "running",
+                        "Status": "Up",
+                        "Ports": "8080->80",
+                        "Created": "-",
+                    },
+                    group="atlas",
+                ),
+                ResourceSummary(
+                    kind=kind,
+                    id="container-2",
+                    name="worker",
+                    raw={},
+                    columns={
+                        "Image": "dokbox-worker:latest",
+                        "State": "running",
+                        "Status": "Up",
+                        "Ports": "-",
+                        "Created": "-",
+                    },
+                    group="odysseus",
+                ),
+            ]
         return [
             ResourceSummary(
                 kind=kind,
@@ -86,6 +117,8 @@ class _BrowserServiceStub:
 
 
 class _BrowserApp(App[None]):
+    ENABLE_COMMAND_PALETTE = False
+
     def __init__(self):
         super().__init__()
         self.docker_service = _BrowserServiceStub()
@@ -307,6 +340,48 @@ def test_resource_browser_enters_table_on_enter_and_updates_shortcuts():
                 shortcut_bar.renderable.plain
                 == "↑/↓ Rows | ↵ Open Details | o Actions | p Prune | q Back To Tabs"
             )
+
+        return None
+
+    asyncio.run(run_test())
+
+
+def test_resource_browser_opens_container_palette_with_ctrl_p():
+    async def run_test():
+        app = _BrowserApp()
+
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            await pilot.press("ctrl+p")
+            await pilot.pause()
+
+            from ui.screens import ContainerPaletteDialog
+
+            assert isinstance(app.screen, ContainerPaletteDialog)
+            assert isinstance(app.focused, Input)
+
+        return None
+
+    asyncio.run(run_test())
+
+
+def test_container_palette_filters_results_and_opens_selected_container():
+    async def run_test():
+        app = _BrowserApp()
+
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            await pilot.press("ctrl+p")
+            await pilot.pause()
+            await pilot.press("w", "o", "r", "k", "e", "r")
+            await pilot.pause()
+            await pilot.press("enter")
+            await pilot.pause()
+
+            from ui.screens import ContainerDetailScreen
+
+            assert isinstance(app.screen, ContainerDetailScreen)
+            assert app.screen.container_id == "container-2"
 
         return None
 

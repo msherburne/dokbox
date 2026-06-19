@@ -5,7 +5,10 @@ from textual.screen import ModalScreen, Screen
 from textual.widgets import (
     Button,
     Header,
+    Input,
     Label,
+    ListItem,
+    ListView,
     Static,
     TabbedContent,
     TabPane,
@@ -15,7 +18,13 @@ from textual.widgets._tabbed_content import ContentTabs
 from models.docker_resources import DockerResourceKind
 from services.docker_service import DockerService
 from ui.widgets import ResourceTable, ShortcutBar, build_resource_table
-from view_models.resources import build_metric_card, get_shortcuts
+from view_models.resources import (
+    PaletteEntry,
+    build_container_palette_entries,
+    build_metric_card,
+    filter_palette_entries,
+    get_shortcuts,
+)
 
 
 class ConfirmActionDialog(ModalScreen[bool]):
@@ -80,6 +89,107 @@ class ContainerActionsDialog(ModalScreen[str | None]):
         self.dismiss(None)
 
 
+class PaletteItem(ListItem):
+    def __init__(self, entry: PaletteEntry):
+        self.entry = entry
+        super().__init__(
+            Label(f"{entry.title}\n{entry.subtitle}", classes="palette-item-label")
+        )
+
+
+class ContainerPaletteDialog(ModalScreen[PaletteEntry | None]):
+    DEFAULT_CSS = """
+    ContainerPaletteDialog {
+        align: center middle;
+    }
+
+    ContainerPaletteDialog > .palette-dialog {
+        width: 72;
+        height: auto;
+        max-height: 20;
+        padding: 1;
+        border: round $primary;
+        background: $surface;
+    }
+
+    #palette-query {
+        margin-bottom: 1;
+    }
+
+    #palette-results {
+        height: 1fr;
+        margin-bottom: 1;
+    }
+
+    .palette-item-label {
+        width: 100%;
+    }
+    """
+
+    BINDINGS = [
+        ("ctrl+p", "cancel", "Close"),
+        ("escape", "cancel", "Close"),
+        ("up", "cursor_up", "Up"),
+        ("down", "cursor_down", "Down"),
+        ("enter", "submit", "Open"),
+    ]
+
+    def __init__(self, entries: list[PaletteEntry]):
+        super().__init__()
+        self.entries = entries
+        self.filtered_entries = entries
+
+    def compose(self) -> ComposeResult:
+        with Container(classes="palette-dialog"):
+            yield Input(placeholder="Search containers...", id="palette-query")
+            yield ListView(id="palette-results")
+            yield ShortcutBar(get_shortcuts("command-palette"))
+
+    def on_mount(self) -> None:
+        self._refresh_results()
+        self.query_one("#palette-query", Input).focus()
+
+    def on_input_changed(self, event: Input.Changed) -> None:
+        if event.input.id != "palette-query":
+            return
+        self.filtered_entries = filter_palette_entries(self.entries, event.value)
+        self._refresh_results()
+
+    def on_input_submitted(self, event: Input.Submitted) -> None:
+        if event.input.id == "palette-query":
+            self.action_submit()
+
+    def on_list_view_selected(self, event: ListView.Selected) -> None:
+        if event.list_view.id == "palette-results":
+            self.action_submit()
+
+    def action_cursor_up(self) -> None:
+        self.query_one("#palette-results", ListView).action_cursor_up()
+
+    def action_cursor_down(self) -> None:
+        self.query_one("#palette-results", ListView).action_cursor_down()
+
+    def action_submit(self) -> None:
+        if not self.filtered_entries:
+            self.dismiss(None)
+            return
+        list_view = self.query_one("#palette-results", ListView)
+        index = list_view.index or 0
+        if index < 0 or index >= len(self.filtered_entries):
+            index = 0
+        self.dismiss(self.filtered_entries[index])
+
+    def action_cancel(self) -> None:
+        self.dismiss(None)
+
+    def _refresh_results(self) -> None:
+        list_view = self.query_one("#palette-results", ListView)
+        list_view.clear()
+        for entry in self.filtered_entries:
+            list_view.append(PaletteItem(entry))
+        list_view.index = 0 if self.filtered_entries else None
+
+
 class ResourceBrowserScreen(Screen):
     DEFAULT_CSS = """
     ResourceBrowserScreen {
@@ -97,6 +207,7 @@ class ResourceBrowserScreen(Screen):
     """
 
     BINDINGS = [
+        ("ctrl+p", "open_palette", "Palette"),
         ("enter", "enter_table", "Focus Table"),
         ("o", "open_actions", "Actions"),
         ("p", "prune_active", "Prune"),
@@ -167,6 +278,14 @@ class ResourceBrowserScreen(Screen):
             callback=lambda action: self._run_container_action(
                 selected.id, table.kind, action
             ),
+        )
+
+    def action_open_palette(self) -> None:
+        entries = build_container_palette_entries(
+            self.docker_service.list_resources(DockerResourceKind.CONTAINER)
+        )
+        self.app.push_screen(
+            ContainerPaletteDialog(entries), callback=self._handle_palette_selection
         )
 
     def action_prune_active(self) -> None:
@@ -241,6 +360,14 @@ class ResourceBrowserScreen(Screen):
             return
         kind = table.kind
         table.refresh_resources(self.docker_service.list_resources(kind))
+
+    def _handle_palette_selection(self, entry: PaletteEntry | None) -> None:
+        if entry is None:
+            return
+        if entry.kind == DockerResourceKind.CONTAINER:
+            self.app.push_screen(
+                ContainerDetailScreen(self.docker_service, entry.resource_id)
+            )
 
 
 class ContainerDetailScreen(Screen):
