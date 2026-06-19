@@ -60,6 +60,15 @@ class UiSmokeTest(unittest.TestCase):
         self.assertEqual(screen.container_id, "abc")
         self.assertIs(screen.docker_service, service)
 
+    def test_container_tool_panes_store_container_context(self):
+        from ui.screens import FilesPane, LogsPane, ShellPane
+
+        service = object()
+
+        self.assertEqual(LogsPane(service, "abc").container_id, "abc")
+        self.assertEqual(ShellPane(service, "abc").container_id, "abc")
+        self.assertEqual(FilesPane(service, "abc", "/").path, "/")
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -77,13 +77,55 @@ class ContainerDetailScreen(Screen):
                     card = build_metric_card(metric)
                     yield Static(f"{card.title}: {card.value}\n{card.bar}")
             with TabPane("Logs", id="logs"):
-                yield Static("Logs stream loads when selected.")
+                yield LogsPane(self.docker_service, self.container_id)
             with TabPane("Shell", id="shell"):
-                yield Static("Shell starts when selected.")
+                yield ShellPane(self.docker_service, self.container_id)
             with TabPane("Files", id="files"):
-                yield Static("Read-only file explorer loads when selected.")
+                yield FilesPane(self.docker_service, self.container_id, "/")
         yield ShortcutBar(get_shortcuts("containers"))
         yield Footer()
 
     def action_back(self) -> None:
         self.app.pop_screen()
+
+
+class LogsPane(Static):
+    def __init__(self, docker_service: DockerService, container_id: str):
+        self.docker_service = docker_service
+        self.container_id = container_id
+        super().__init__("Loading logs...")
+
+    def on_mount(self) -> None:
+        lines = []
+        for index, line in enumerate(
+            self.docker_service.stream_logs(self.container_id, follow=False)
+        ):
+            if index >= 200:
+                break
+            lines.append(line.text)
+        self.update("\n".join(lines) if lines else "No logs.")
+
+
+class ShellPane(Static):
+    def __init__(self, docker_service: DockerService, container_id: str):
+        self.docker_service = docker_service
+        self.container_id = container_id
+        super().__init__("Press Enter to start shell.")
+
+
+class FilesPane(Static):
+    def __init__(
+        self, docker_service: DockerService, container_id: str, path: str = "/"
+    ):
+        self.docker_service = docker_service
+        self.container_id = container_id
+        self.path = path
+        super().__init__("Loading files...")
+
+    def on_mount(self) -> None:
+        entries = self.docker_service.list_container_path(self.container_id, self.path)
+        rendered = "\n".join(
+            f"{'[d]' if entry.is_dir else '[f]'} {entry.name} {entry.mode}"
+            for entry in entries
+        )
+        self.update(rendered if rendered else "No readable entries.")
