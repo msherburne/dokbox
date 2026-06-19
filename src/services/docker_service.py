@@ -34,7 +34,7 @@ class DockerService:
                     name=container.name,
                     raw=attrs,
                     columns={
-                        "Image": _first_tag(getattr(container.image, "tags", [])),
+                        "Image": _container_image(attrs),
                         "State": attrs.get("State", {}).get(
                             "Status", getattr(container, "status", "-")
                         ),
@@ -132,6 +132,10 @@ def _split_image_tag(value: str) -> tuple[str, str]:
         return value, "-"
     repository, tag = value.rsplit(":", 1)
     return repository, tag
+
+
+def _container_image(attrs: dict[str, Any]) -> str:
+    return attrs.get("Config", {}).get("Image") or attrs.get("Image") or "-"
 
 
 def _format_ports(ports: dict[str, Any]) -> str:
