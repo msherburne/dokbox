@@ -1,5 +1,4 @@
 import sys
-import unittest
 from pathlib import Path
 from unittest.mock import Mock, call
 
@@ -26,209 +25,216 @@ class ContainerStub:
         raise AssertionError("container.image should not be accessed")
 
 
-class DockerServiceTest(unittest.TestCase):
-    def test_list_containers_returns_resource_summaries(self):
-        client = Mock()
-        client.containers.list.return_value = [ContainerStub()]
-        service = DockerService(client)
+def test_list_containers_returns_resource_summaries():
+    client = Mock()
+    client.containers.list.return_value = [ContainerStub()]
+    service = DockerService(client)
 
-        summaries = service.list_resources(DockerResourceKind.CONTAINER)
+    summaries = service.list_resources(DockerResourceKind.CONTAINER)
 
-        self.assertEqual(len(summaries), 1)
-        self.assertEqual(summaries[0].name, "api")
-        self.assertEqual(summaries[0].columns["Image"], "dokbox-api:latest")
-        self.assertEqual(summaries[0].columns["Ports"], "8080->80")
+    assert len(summaries) == 1
+    assert summaries[0].name == "api"
+    assert summaries[0].columns["Image"] == "dokbox-api:latest"
+    assert summaries[0].columns["Ports"] == "8080->80"
 
-    def test_prune_routes_by_resource_kind(self):
-        client = Mock()
-        service = DockerService(client)
 
-        service.prune(DockerResourceKind.IMAGE)
+def test_prune_routes_by_resource_kind():
+    client = Mock()
+    service = DockerService(client)
 
-        client.images.prune.assert_called_once()
-        client.containers.prune.assert_not_called()
+    service.prune(DockerResourceKind.IMAGE)
 
-    def test_container_lifecycle_actions_route_to_selected_container(self):
-        container = Mock()
-        client = Mock()
-        client.containers.get.return_value = container
-        service = DockerService(client)
+    client.images.prune.assert_called_once()
+    client.containers.prune.assert_not_called()
 
-        service.start_container("abc")
-        service.stop_container("abc")
-        service.restart_container("abc")
-        service.remove_resource(DockerResourceKind.CONTAINER, "abc")
 
-        self.assertEqual(
-            client.containers.get.call_args_list,
-            [call("abc"), call("abc"), call("abc"), call("abc")],
-        )
-        container.start.assert_called_once()
-        container.stop.assert_called_once()
-        container.restart.assert_called_once()
-        container.remove.assert_called_once()
+def test_container_lifecycle_actions_route_to_selected_container():
+    container = Mock()
+    client = Mock()
+    client.containers.get.return_value = container
+    service = DockerService(client)
 
-    def test_remove_image_routes_to_images_remove(self):
-        client = Mock()
-        service = DockerService(client)
+    service.start_container("abc")
+    service.stop_container("abc")
+    service.restart_container("abc")
+    service.remove_resource(DockerResourceKind.CONTAINER, "abc")
 
-        service.remove_resource(DockerResourceKind.IMAGE, "img")
+    assert client.containers.get.call_args_list == [
+        call("abc"),
+        call("abc"),
+        call("abc"),
+        call("abc"),
+    ]
+    container.start.assert_called_once()
+    container.stop.assert_called_once()
+    container.restart.assert_called_once()
+    container.remove.assert_called_once()
 
-        client.images.remove.assert_called_once_with("img")
 
-    def test_remove_volume_routes_to_volume_remove(self):
-        volume = Mock()
-        client = Mock()
-        client.volumes.get.return_value = volume
-        service = DockerService(client)
+def test_remove_image_routes_to_images_remove():
+    client = Mock()
+    service = DockerService(client)
 
-        service.remove_resource(DockerResourceKind.VOLUME, "vol")
+    service.remove_resource(DockerResourceKind.IMAGE, "img")
 
-        client.volumes.get.assert_called_once_with("vol")
-        volume.remove.assert_called_once()
+    client.images.remove.assert_called_once_with("img")
 
-    def test_remove_network_routes_to_network_remove(self):
-        network = Mock()
-        client = Mock()
-        client.networks.get.return_value = network
-        service = DockerService(client)
 
-        service.remove_resource(DockerResourceKind.NETWORK, "net")
+def test_remove_volume_routes_to_volume_remove():
+    volume = Mock()
+    client = Mock()
+    client.volumes.get.return_value = volume
+    service = DockerService(client)
 
-        client.networks.get.assert_called_once_with("net")
-        network.remove.assert_called_once()
+    service.remove_resource(DockerResourceKind.VOLUME, "vol")
 
-    def test_connection_check_returns_connected_after_ping(self):
-        client = Mock()
-        service = DockerService(client)
+    client.volumes.get.assert_called_once_with("vol")
+    volume.remove.assert_called_once()
 
-        result = service.check_connection()
 
-        client.ping.assert_called_once()
-        self.assertTrue(result.ok)
-        self.assertEqual(result.message, "Connected")
+def test_remove_network_routes_to_network_remove():
+    network = Mock()
+    client = Mock()
+    client.networks.get.return_value = network
+    service = DockerService(client)
 
-    def test_connection_check_returns_message_instead_of_raising(self):
-        client = Mock()
-        client.ping.side_effect = RuntimeError("cannot connect")
-        service = DockerService(client)
+    service.remove_resource(DockerResourceKind.NETWORK, "net")
 
-        result = service.check_connection()
+    client.networks.get.assert_called_once_with("net")
+    network.remove.assert_called_once()
 
-        self.assertFalse(result.ok)
-        self.assertEqual(result.message, "cannot connect")
 
-    def test_container_metrics_are_limit_aware(self):
-        container = Mock()
-        container.attrs = {
-            "HostConfig": {
-                "NanoCpus": 1_500_000_000,
-                "Memory": 1073741824,
-            }
+def test_connection_check_returns_connected_after_ping():
+    client = Mock()
+    service = DockerService(client)
+
+    result = service.check_connection()
+
+    client.ping.assert_called_once()
+    assert result.ok is True
+    assert result.message == "Connected"
+
+
+def test_connection_check_returns_message_instead_of_raising():
+    client = Mock()
+    client.ping.side_effect = RuntimeError("cannot connect")
+    service = DockerService(client)
+
+    result = service.check_connection()
+
+    assert result.ok is False
+    assert result.message == "cannot connect"
+
+
+def test_container_metrics_are_limit_aware():
+    container = Mock()
+    container.attrs = {
+        "HostConfig": {
+            "NanoCpus": 1_500_000_000,
+            "Memory": 1073741824,
         }
-        container.stats.return_value = {
-            "cpu_stats": {
-                "cpu_usage": {"total_usage": 1420},
-                "system_cpu_usage": 10000,
-                "online_cpus": 4,
+    }
+    container.stats.return_value = {
+        "cpu_stats": {
+            "cpu_usage": {"total_usage": 1420},
+            "system_cpu_usage": 10000,
+            "online_cpus": 4,
+        },
+        "precpu_stats": {
+            "cpu_usage": {"total_usage": 1000},
+            "system_cpu_usage": 9000,
+        },
+        "memory_stats": {"usage": 536870912, "limit": 1073741824},
+        "networks": {"eth0": {"rx_bytes": 1000, "tx_bytes": 2000}},
+        "blkio_stats": {"io_service_bytes_recursive": [{"op": "Read", "value": 4096}]},
+    }
+    client = Mock()
+    client.containers.get.return_value = container
+    service = DockerService(client)
+
+    metrics = service.get_container_metrics("abc")
+
+    container.stats.assert_called_once_with(stream=False)
+    assert metrics[0].name == "CPU"
+    assert metrics[0].value == 1.68
+    assert metrics[0].limit == 1.5
+    assert "of 1.5 cores" in metrics[0].label
+    assert metrics[1].name == "Memory"
+    assert metrics[1].value == 536870912
+    assert metrics[1].limit == 1073741824
+    assert metrics[2].name == "Network RX"
+    assert metrics[2].value == 1000
+    assert metrics[3].name == "Disk Read"
+    assert metrics[3].value == 4096
+
+
+def test_container_metrics_use_percpu_count_when_online_cpus_missing():
+    container = Mock()
+    container.attrs = {"HostConfig": {}}
+    container.stats.return_value = {
+        "cpu_stats": {
+            "cpu_usage": {
+                "total_usage": 1420,
+                "percpu_usage": [100, 200, 300, 400],
             },
-            "precpu_stats": {
-                "cpu_usage": {"total_usage": 1000},
-                "system_cpu_usage": 9000,
-            },
-            "memory_stats": {"usage": 536870912, "limit": 1073741824},
-            "networks": {"eth0": {"rx_bytes": 1000, "tx_bytes": 2000}},
-            "blkio_stats": {
-                "io_service_bytes_recursive": [{"op": "Read", "value": 4096}]
-            },
-        }
-        client = Mock()
-        client.containers.get.return_value = container
-        service = DockerService(client)
+            "system_cpu_usage": 10000,
+        },
+        "precpu_stats": {
+            "cpu_usage": {"total_usage": 1000},
+            "system_cpu_usage": 9000,
+        },
+    }
+    client = Mock()
+    client.containers.get.return_value = container
+    service = DockerService(client)
 
-        metrics = service.get_container_metrics("abc")
+    metrics = service.get_container_metrics("abc")
 
-        container.stats.assert_called_once_with(stream=False)
-        self.assertEqual(metrics[0].name, "CPU")
-        self.assertAlmostEqual(metrics[0].value, 1.68)
-        self.assertEqual(metrics[0].limit, 1.5)
-        self.assertIn("of 1.5 cores", metrics[0].label)
-        self.assertEqual(metrics[1].name, "Memory")
-        self.assertEqual(metrics[1].value, 536870912)
-        self.assertEqual(metrics[1].limit, 1073741824)
-        self.assertEqual(metrics[2].name, "Network RX")
-        self.assertEqual(metrics[2].value, 1000)
-        self.assertEqual(metrics[3].name, "Disk Read")
-        self.assertEqual(metrics[3].value, 4096)
-
-    def test_container_metrics_use_percpu_count_when_online_cpus_missing(self):
-        container = Mock()
-        container.attrs = {"HostConfig": {}}
-        container.stats.return_value = {
-            "cpu_stats": {
-                "cpu_usage": {
-                    "total_usage": 1420,
-                    "percpu_usage": [100, 200, 300, 400],
-                },
-                "system_cpu_usage": 10000,
-            },
-            "precpu_stats": {
-                "cpu_usage": {"total_usage": 1000},
-                "system_cpu_usage": 9000,
-            },
-        }
-        client = Mock()
-        client.containers.get.return_value = container
-        service = DockerService(client)
-
-        metrics = service.get_container_metrics("abc")
-
-        self.assertAlmostEqual(metrics[0].value, 1.68)
-
-    def test_stream_logs_decodes_bytes(self):
-        container = Mock()
-        container.logs.return_value = iter([b"hello\n", b"world\n"])
-        client = Mock()
-        client.containers.get.return_value = container
-        service = DockerService(client)
-
-        lines = list(service.stream_logs("abc", follow=True))
-
-        self.assertEqual([line.text for line in lines], ["hello", "world"])
-        container.logs.assert_called_once_with(stream=True, follow=True, tail=200)
-
-    def test_open_shell_prefers_bash(self):
-        container = Mock()
-        container.exec_run.return_value = (0, b"")
-        client = Mock()
-        client.containers.get.return_value = container
-        client.api.exec_create.return_value = {"Id": "exec-1"}
-        client.api.exec_start.return_value = iter([b"$ "])
-        service = DockerService(client)
-
-        session = service.open_shell("abc")
-
-        self.assertEqual(session.command, ("/bin/bash",))
-        client.api.exec_create.assert_called_once_with(
-            "abc", cmd=["/bin/bash"], stdin=True, tty=True
-        )
-
-    def test_list_container_directory_uses_archive_stat(self):
-        container = Mock()
-        container.get_archive.return_value = (
-            iter([]),
-            {"name": "app", "mode": 16877, "size": 0, "linkTarget": ""},
-        )
-        client = Mock()
-        client.containers.get.return_value = container
-        service = DockerService(client)
-
-        entries = service.list_container_path("abc", "/app")
-
-        self.assertEqual(entries[0].path, "/app")
-        self.assertEqual(entries[0].name, "app")
-        self.assertTrue(entries[0].is_dir)
+    assert metrics[0].value == 1.68
 
 
-if __name__ == "__main__":
-    unittest.main()
+def test_stream_logs_decodes_bytes():
+    container = Mock()
+    container.logs.return_value = iter([b"hello\n", b"world\n"])
+    client = Mock()
+    client.containers.get.return_value = container
+    service = DockerService(client)
+
+    lines = list(service.stream_logs("abc", follow=True))
+
+    assert [line.text for line in lines] == ["hello", "world"]
+    container.logs.assert_called_once_with(stream=True, follow=True, tail=200)
+
+
+def test_open_shell_prefers_bash():
+    container = Mock()
+    container.exec_run.return_value = (0, b"")
+    client = Mock()
+    client.containers.get.return_value = container
+    client.api.exec_create.return_value = {"Id": "exec-1"}
+    client.api.exec_start.return_value = iter([b"$ "])
+    service = DockerService(client)
+
+    session = service.open_shell("abc")
+
+    assert session.command == ("/bin/bash",)
+    client.api.exec_create.assert_called_once_with(
+        "abc", cmd=["/bin/bash"], stdin=True, tty=True
+    )
+
+
+def test_list_container_directory_uses_archive_stat():
+    container = Mock()
+    container.get_archive.return_value = (
+        iter([]),
+        {"name": "app", "mode": 16877, "size": 0, "linkTarget": ""},
+    )
+    client = Mock()
+    client.containers.get.return_value = container
+    service = DockerService(client)
+
+    entries = service.list_container_path("abc", "/app")
+
+    assert entries[0].path == "/app"
+    assert entries[0].name == "app"
+    assert entries[0].is_dir is True
