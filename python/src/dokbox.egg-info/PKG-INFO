@@ -1,0 +1,39 @@
+Metadata-Version: 2.4
+Name: dokbox
+Version: 0.1.0
+Summary: Add your description here
+Requires-Python: >=3.10
+Description-Content-Type: text/markdown
+Requires-Dist: docker>=7.1.0
+Requires-Dist: pydantic>=2.13.4
+Requires-Dist: textual>=8.2.7
+
+## Release workflow
+
+This project uses conventional commits.
+
+- `feat:` releases a minor version
+- `fix:` and `perf:` release a patch version
+- `BREAKING CHANGE:` or `!` triggers a major version
+
+Install hooks with:
+
+```bash
+uv run pre-commit install --hook-type pre-commit --hook-type commit-msg
+```
+
+You can also create commits interactively with:
+
+```bash
+uv run cz commit
+```
+
+When pull requests merge to `main`, GitHub Actions runs semantic release to update `pyproject.toml`, refresh `CHANGELOG.md`, create a tag, and publish a GitHub release.
+
+## Testing
+
+Run the test suite with:
+
+```bash
+uv run pytest
+```

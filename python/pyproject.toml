@@ -1,0 +1,76 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "dokbox"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "docker>=7.1.0",
+    "pydantic>=2.13.4",
+    "textual>=8.2.7",
+]
+
+[project.scripts]
+dokbox = "dokbox.main:main"
+
+[dependency-groups]
+dev = [
+    "commitizen>=3.29.0",
+    "hatchling>=1.27.0",
+    "nuitka>=2.7.10",
+    "pre-commit>=4.6.0",
+    "pytest>=8.4.1",
+    "python-semantic-release>=10.5.0",
+    "tomli>=2.0.1; python_version < '3.11'",
+]
+
+[tool.hatch.build]
+dev-mode-dirs = ["src"]
+
+[tool.hatch.build.targets.sdist]
+only-include = ["pyproject.toml", "README.md", "src/dokbox"]
+exclude = ["src/*.egg-info", "src/**/__pycache__", "src/**/*.pyc"]
+
+[tool.hatch.build.targets.wheel]
+only-include = ["src/dokbox"]
+sources = ["src"]
+exclude = ["src/*.egg-info", "src/**/__pycache__", "src/**/*.pyc"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+
+[tool.commitizen]
+name = "cz_conventional_commits"
+tag_format = "v$version"
+version_provider = "pep621"
+version_scheme = "semver"
+update_changelog_on_bump = true
+
+[tool.semantic_release]
+version_toml = ["pyproject.toml:project.version"]
+branch = "main"
+tag_format = "v{version}"
+commit_parser = "conventional"
+allow_zero_version = true
+build_command = ""
+version_variables = []
+
+[tool.semantic_release.commit_parser_options]
+minor_tags = ["feat"]
+patch_tags = ["fix", "perf"]
+
+[tool.semantic_release.changelog]
+exclude_commit_patterns = [
+    '''chore(?:\([^)]*?\))?: .+''',
+    '''ci(?:\([^)]*?\))?: .+''',
+    '''style(?:\([^)]*?\))?: .+''',
+    '''test(?:\([^)]*?\))?: .+''',
+]
+
+[tool.semantic_release.changelog.default_templates]
+changelog_file = "CHANGELOG.md"
+output_format = "md"
