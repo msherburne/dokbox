@@ -19,3 +19,11 @@ uv run cz commit
 ```
 
 When pull requests merge to `main`, GitHub Actions runs semantic release to update `pyproject.toml`, refresh `CHANGELOG.md`, create a tag, and publish a GitHub release.
+
+## Testing
+
+Run the test suite with:
+
+```bash
+uv run pytest
+```
