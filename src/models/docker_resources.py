@@ -17,6 +17,8 @@ class ResourceSummary:
     name: str
     raw: dict[str, Any]
     columns: dict[str, str] = field(default_factory=dict)
+    group: str | None = None
+    is_group: bool = False
 
     @property
     def short_id(self) -> str:

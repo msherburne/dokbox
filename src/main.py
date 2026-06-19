@@ -7,6 +7,8 @@ from utils.setup import load_or_setup_config
 
 
 class Dokbox(App):
+    ENABLE_COMMAND_PALETTE = False
+
     def __init__(
         self, config: DokboxConfig, docker_service: DockerService | None = None
     ):

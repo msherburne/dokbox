@@ -38,6 +38,24 @@ def test_list_containers_returns_resource_summaries():
     assert summaries[0].columns["Ports"] == "8080->80"
 
 
+def test_list_containers_extracts_compose_project_label():
+    client = Mock()
+    container = ContainerStub()
+    container.attrs = {
+        **ContainerStub.attrs,
+        "Config": {
+            **ContainerStub.attrs["Config"],
+            "Labels": {"com.docker.compose.project": "odysseus"},
+        },
+    }
+    client.containers.list.return_value = [container]
+    service = DockerService(client)
+
+    summaries = service.list_resources(DockerResourceKind.CONTAINER)
+
+    assert summaries[0].group == "odysseus"
+
+
 def test_prune_routes_by_resource_kind():
     client = Mock()
     service = DockerService(client)

@@ -55,6 +55,7 @@ class DockerService:
                     id=container.id,
                     name=container.name,
                     raw=attrs,
+                    group=_compose_project(attrs),
                     columns={
                         "Image": _container_image(attrs),
                         "State": attrs.get("State", {}).get(
@@ -256,6 +257,11 @@ def _split_image_tag(value: str) -> tuple[str, str]:
 
 def _container_image(attrs: dict[str, Any]) -> str:
     return attrs.get("Config", {}).get("Image") or attrs.get("Image") or "-"
+
+
+def _compose_project(attrs: dict[str, Any]) -> str | None:
+    labels = attrs.get("Config", {}).get("Labels") or {}
+    return labels.get("com.docker.compose.project")
 
 
 def _format_ports(ports: dict[str, Any]) -> str:
