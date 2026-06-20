@@ -75,6 +75,27 @@ func runScriptWithEnv(t *testing.T, root, script string, envVars map[string]stri
 	}
 }
 
+func runScriptExpectFailure(t *testing.T, root, script string, envVars map[string]string, pathEntries ...string) string {
+	t.Helper()
+
+	cmd := exec.Command("bash", script)
+	cmd.Dir = root
+
+	env := os.Environ()
+	env = append(env, "PATH="+strings.Join(append(pathEntries, os.Getenv("PATH")), string(os.PathListSeparator)))
+	for key, value := range envVars {
+		env = append(env, key+"="+value)
+	}
+	cmd.Env = env
+
+	output, err := cmd.CombinedOutput()
+	if err == nil {
+		t.Fatalf("%s unexpectedly succeeded\n%s", script, output)
+	}
+
+	return string(output)
+}
+
 func TestPackagingDocsDescribeGoNativeLinuxBuilds(t *testing.T) {
 	root := projectRoot(t)
 
@@ -276,12 +297,16 @@ func TestBuildPacmanHelperCreatesPkgArchive(t *testing.T) {
 	copyFile(t, filepath.Join(projectRoot(t), "packaging", "LICENSE"), filepath.Join(packagingDir, "LICENSE"))
 
 	writeExecutable(t, filepath.Join(root, "dist", "dokbox-linux-x86_64", "bin", "dokbox"), "#!/usr/bin/env bash\necho dokbox\n")
+	writeExecutable(t, filepath.Join(fakeBin, "bsdtar"), "#!/usr/bin/env bash\nexit 0\n")
 
 	writeExecutable(t, filepath.Join(fakeBin, "makepkg"), `#!/usr/bin/env bash
 set -euo pipefail
+test "${PACMAN:-}" = "true"
 grep -q '^pkgname=dokbox$' PKGBUILD
 grep -q '^pkgver=1.2.3$' PKGBUILD
 grep -q '/usr/bin/dokbox' PKGBUILD
+grep -q "^source=('dokbox' 'LICENSE')$" PKGBUILD
+grep -q "^sha256sums=('SKIP' 'SKIP')$" PKGBUILD
 grep -q '/usr/share/licenses/dokbox/LICENSE' PKGBUILD
 test -f LICENSE
 touch "dokbox-1.2.3-1-x86_64.pkg.tar.zst"
@@ -304,9 +329,11 @@ func TestBuildPacmanHelperUsesSafeDefaultVersion(t *testing.T) {
 	copyFile(t, filepath.Join(projectRoot(t), "packaging", "LICENSE"), filepath.Join(packagingDir, "LICENSE"))
 
 	writeExecutable(t, filepath.Join(root, "dist", "dokbox-linux-x86_64", "bin", "dokbox"), "#!/usr/bin/env bash\necho dokbox\n")
+	writeExecutable(t, filepath.Join(fakeBin, "bsdtar"), "#!/usr/bin/env bash\nexit 0\n")
 
 	writeExecutable(t, filepath.Join(fakeBin, "makepkg"), `#!/usr/bin/env bash
 set -euo pipefail
+test "${PACMAN:-}" = "true"
 pkgver="$(awk -F= '/^pkgver=/ { print $2 }' PKGBUILD)"
 case "$pkgver" in
   *-*)
@@ -323,5 +350,26 @@ touch "dokbox-0.1.0-1-x86_64.pkg.tar.zst"
 
 	if _, err := os.Stat(filepath.Join(root, "dist", "dokbox-0.1.0-1-x86_64.pkg.tar.zst")); err != nil {
 		t.Fatalf("expected pacman package with safe fallback version: %v", err)
+	}
+}
+
+func TestBuildPacmanHelperFailsFastWhenBsdtarIsMissing(t *testing.T) {
+	root := t.TempDir()
+	packagingDir := filepath.Join(root, "packaging")
+
+	copyFile(t, filepath.Join(projectRoot(t), "packaging", "common.sh"), filepath.Join(packagingDir, "common.sh"))
+	copyFile(t, filepath.Join(projectRoot(t), "packaging", "build-pacman.sh"), filepath.Join(packagingDir, "build-pacman.sh"))
+	copyFile(t, filepath.Join(projectRoot(t), "packaging", "LICENSE"), filepath.Join(packagingDir, "LICENSE"))
+
+	writeExecutable(t, filepath.Join(root, "dist", "dokbox-linux-x86_64", "bin", "dokbox"), "#!/usr/bin/env bash\necho dokbox\n")
+	writeExecutable(t, filepath.Join(root, "empty-bin", "apt"), "#!/usr/bin/env bash\nexit 1\n")
+
+	output := runScriptExpectFailure(t, root, filepath.Join("packaging", "build-pacman.sh"), map[string]string{
+		"VERSION": "1.2.3",
+		"RELEASE": "1",
+	}, filepath.Join(root, "empty-bin"))
+
+	if !strings.Contains(output, "Required tool missing: bsdtar") {
+		t.Fatalf("expected missing bsdtar error, got:\n%s", output)
 	}
 }

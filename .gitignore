@@ -8,3 +8,4 @@ superpowers
 .superpowers
 .worktrees
 /dist/
+/.cache/

@@ -46,6 +46,10 @@ Build a pacman package:
 ./packaging/build-pacman.sh
 ```
 
+If `bsdtar` is unavailable on a Debian or Ubuntu development machine, the
+pacman helper will try to bootstrap it locally into `.cache/packaging-tools/`
+using `apt download` plus `dpkg-deb`.
+
 ## Local install checks
 
 After building a package, test installation with the native tool for that

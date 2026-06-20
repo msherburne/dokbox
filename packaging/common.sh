@@ -18,6 +18,56 @@ require_tool() {
   fi
 }
 
+bootstrap_bsdtar() {
+  if command -v bsdtar >/dev/null 2>&1; then
+    return 0
+  fi
+
+  local tool_root="$ROOT_DIR/.cache/packaging-tools/libarchive-tools"
+  local tool_bin="$tool_root/usr/bin"
+
+  if [ -x "$tool_bin/bsdtar" ]; then
+    PATH="$tool_bin:$PATH"
+    export PATH
+    return 0
+  fi
+
+  if ! command -v apt >/dev/null 2>&1 || ! command -v dpkg-deb >/dev/null 2>&1; then
+    printf 'Required tool missing: bsdtar\n' >&2
+    exit 1
+  fi
+
+  local download_dir="$ROOT_DIR/.cache/packaging-tools/downloads"
+  mkdir -p "$download_dir" "$tool_root"
+
+  if ! (
+    cd "$download_dir"
+    apt download libarchive-tools >/dev/null 2>&1
+  ); then
+    printf 'Required tool missing: bsdtar\n' >&2
+    exit 1
+  fi
+
+  local deb_file
+  deb_file="$(find "$download_dir" -maxdepth 1 -name 'libarchive-tools_*.deb' | sort | tail -n 1)"
+  if [ -z "$deb_file" ]; then
+    printf 'Required tool missing: bsdtar\n' >&2
+    exit 1
+  fi
+
+  rm -rf "$tool_root"
+  mkdir -p "$tool_root"
+  dpkg-deb -x "$deb_file" "$tool_root"
+
+  if [ ! -x "$tool_bin/bsdtar" ]; then
+    printf 'Required tool missing: bsdtar\n' >&2
+    exit 1
+  fi
+
+  PATH="$tool_bin:$PATH"
+  export PATH
+}
+
 resolve_version() {
   if [ -n "${VERSION:-}" ]; then
     printf '%s\n' "$VERSION"

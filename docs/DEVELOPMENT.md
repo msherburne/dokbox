@@ -151,6 +151,10 @@ sudo pacman -S --needed base-devel
 ./packaging/build-pacman.sh
 ```
 
+On Debian or Ubuntu environments where `makepkg` is available but `bsdtar` is
+not installed system-wide, the helper will try to bootstrap `bsdtar` locally
+from the distro package metadata into `.cache/packaging-tools/`.
+
 Install the resulting package system-wide:
 
 ```bash

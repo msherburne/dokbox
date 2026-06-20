@@ -4,6 +4,7 @@ set -euo pipefail
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/common.sh"
 
 require_tool makepkg
+bootstrap_bsdtar
 ensure_standalone_payload
 
 PACMAN_ARCH="$ARCHIVE_ARCH"
@@ -23,8 +24,8 @@ pkgrel=${PACKAGE_RELEASE}
 pkgdesc='${PACKAGE_SUMMARY}'
 arch=('${PACMAN_ARCH}')
 license=('custom')
-source=('${PACKAGE_NAME}')
-sha256sums=('SKIP')
+source=('${PACKAGE_NAME}' 'LICENSE')
+sha256sums=('SKIP' 'SKIP')
 
 package() {
   install -Dm755 "\$srcdir/${PACKAGE_NAME}" "\$pkgdir${BIN_PATH}"
@@ -34,7 +35,7 @@ EOF
 
 (
   cd "$PACMAN_STAGE_DIR"
-  makepkg --force --nodeps
+  PACMAN=true PKGEXT=.pkg.tar.zst makepkg --force --nodeps
 )
 
 mv "$PACMAN_STAGE_DIR/$PACMAN_OUTPUT" "$DIST_DIR/$PACMAN_OUTPUT"
