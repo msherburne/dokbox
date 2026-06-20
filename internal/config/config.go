@@ -8,6 +8,7 @@ import (
 
 	"github.com/msherburne/dokbox/internal/docker"
 	"github.com/msherburne/dokbox/internal/domain"
+	"github.com/msherburne/dokbox/internal/theme"
 )
 
 const CurrentConfigVersion = 1
@@ -105,6 +106,7 @@ func GenerateDefaultConfig(writer io.Writer) (domain.Config, error) {
 	cfg := domain.Config{
 		ConfigVersion: CurrentConfigVersion,
 		DockerHost:    docker.DetectDockerHost(),
+		Theme:         theme.DefaultPreset,
 	}
 
 	payload, err := json.MarshalIndent(cfg, "", "  ")
@@ -156,6 +158,9 @@ func decodeConfig(raw map[string]any) (*domain.Config, error) {
 	if err := json.Unmarshal(payload, &cfg); err != nil {
 		return nil, err
 	}
+
+	_, resolvedThemeName := theme.Resolve(cfg.Theme)
+	cfg.Theme = resolvedThemeName
 
 	return &cfg, nil
 }

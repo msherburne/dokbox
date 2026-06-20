@@ -52,6 +52,10 @@ func TestResolveCurrentConfigMigratesAndNormalizesSavedFile(t *testing.T) {
 		t.Fatalf("expected docker host to be preserved, got %q", cfg.DockerHost)
 	}
 
+	if cfg.Theme != "default" {
+		t.Fatalf("expected missing theme to resolve to default, got %q", cfg.Theme)
+	}
+
 	savedBytes, err := os.ReadFile(configPath)
 	if err != nil {
 		t.Fatalf("read saved config: %v", err)
@@ -68,6 +72,56 @@ func TestResolveCurrentConfigMigratesAndNormalizesSavedFile(t *testing.T) {
 
 	if saved["docker_host"] != "unix:///var/run/docker.sock" {
 		t.Fatalf("expected saved docker_host to be preserved, got %#v", saved["docker_host"])
+	}
+
+	if saved["theme"] != "default" {
+		t.Fatalf("expected saved theme to be default, got %#v", saved["theme"])
+	}
+}
+
+func TestResolveCurrentConfigDefaultsMissingThemeToDefault(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
+	configPath := filepath.Join(home, ".dokbox.json")
+	if err := os.WriteFile(configPath, []byte(`{"config_version":1,"docker_host":"unix:///var/run/docker.sock"}`), 0o600); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+
+	cfg, err := config.ResolveCurrentConfig()
+	if err != nil {
+		t.Fatalf("resolve config: %v", err)
+	}
+
+	if cfg == nil {
+		t.Fatal("expected resolved config")
+	}
+
+	if cfg.Theme != "default" {
+		t.Fatalf("expected missing theme to resolve to default, got %q", cfg.Theme)
+	}
+}
+
+func TestResolveCurrentConfigFallsBackFromUnknownTheme(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
+	configPath := filepath.Join(home, ".dokbox.json")
+	if err := os.WriteFile(configPath, []byte(`{"config_version":1,"docker_host":"unix:///var/run/docker.sock","theme":"aurora"}`), 0o600); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+
+	cfg, err := config.ResolveCurrentConfig()
+	if err != nil {
+		t.Fatalf("resolve config: %v", err)
+	}
+
+	if cfg == nil {
+		t.Fatal("expected resolved config")
+	}
+
+	if cfg.Theme != "default" {
+		t.Fatalf("expected unknown theme to fall back to default, got %q", cfg.Theme)
 	}
 }
 
@@ -122,5 +176,16 @@ func TestGenerateDefaultConfigUsesPlatformDockerHostWhenEnvUnset(t *testing.T) {
 
 	if cfg.DockerHost != want {
 		t.Fatalf("expected docker host %q from platform default, got %q", want, cfg.DockerHost)
+	}
+}
+
+func TestGenerateDefaultConfigIncludesTheme(t *testing.T) {
+	cfg, err := config.GenerateDefaultConfig(nil)
+	if err != nil {
+		t.Fatalf("generate default config: %v", err)
+	}
+
+	if cfg.Theme != "default" {
+		t.Fatalf("expected generated default theme %q, got %q", "default", cfg.Theme)
 	}
 }
