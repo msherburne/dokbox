@@ -2,18 +2,6 @@ package theme
 
 import "testing"
 
-func TestResolveThemeFallsBackToDefault(t *testing.T) {
-	resolved, name := Resolve("aurora")
-
-	if name != DefaultPreset {
-		t.Fatalf("expected resolved name %q, got %q", DefaultPreset, name)
-	}
-
-	if resolved.Name != DefaultPreset {
-		t.Fatalf("expected default preset theme, got %q", resolved.Name)
-	}
-}
-
 func TestResolveReturnsNamedPreset(t *testing.T) {
 	resolved, name := Resolve("ember")
 
@@ -35,5 +23,20 @@ func TestResolveFallsBackToDefault(t *testing.T) {
 
 	if resolved.Name != DefaultPreset {
 		t.Fatalf("expected fallback theme %q, got %q", DefaultPreset, resolved.Name)
+	}
+}
+
+func TestPresetNamesReturnsBuiltInPresetsInOrder(t *testing.T) {
+	got := PresetNames()
+	want := []string{"default", "slate", "ember"}
+
+	if len(got) != len(want) {
+		t.Fatalf("expected %d preset names, got %d (%v)", len(want), len(got), got)
+	}
+
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("expected preset names %v, got %v", want, got)
+		}
 	}
 }

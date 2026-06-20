@@ -2,14 +2,8 @@ package theme
 
 const DefaultPreset = "default"
 
-var presetOrder = []string{
-	DefaultPreset,
-	"slate",
-	"ember",
-}
-
-var presets = map[string]Theme{
-	DefaultPreset: {
+var presetList = []Theme{
+	{
 		Name:       DefaultPreset,
 		Background: "#101418",
 		Panel:      "#171d24",
@@ -24,7 +18,7 @@ var presets = map[string]Theme{
 		Error:      "#ff6b6b",
 		Info:       "#73c7ff",
 	},
-	"slate": {
+	{
 		Name:       "slate",
 		Background: "#0f1720",
 		Panel:      "#18212c",
@@ -39,7 +33,7 @@ var presets = map[string]Theme{
 		Error:      "#f87171",
 		Info:       "#93c5fd",
 	},
-	"ember": {
+	{
 		Name:       "ember",
 		Background: "#16100f",
 		Panel:      "#211715",
@@ -56,8 +50,22 @@ var presets = map[string]Theme{
 	},
 }
 
+var presets = buildPresetIndex(presetList)
+
 func PresetNames() []string {
-	names := make([]string, len(presetOrder))
-	copy(names, presetOrder)
+	names := make([]string, len(presetList))
+	for i, preset := range presetList {
+		names[i] = preset.Name
+	}
+
 	return names
+}
+
+func buildPresetIndex(list []Theme) map[string]Theme {
+	index := make(map[string]Theme, len(list))
+	for _, preset := range list {
+		index[preset.Name] = preset
+	}
+
+	return index
 }
