@@ -32,11 +32,21 @@ type MetricsProvider interface {
 	ContainerMetrics(containerID string) ([]domain.MetricSample, error)
 }
 
+type ShellProvider interface {
+	OpenShell(containerID string) (*domain.ExecSession, error)
+}
+
+type FileProvider interface {
+	ListContainerPath(containerID string, path string) ([]domain.FileEntry, error)
+}
+
 type Dependencies struct {
 	ConnectionChecker ConnectionChecker
 	ActionRunner      ActionRunner
 	LogProvider       LogProvider
 	MetricsProvider   MetricsProvider
+	ShellProvider     ShellProvider
+	FileProvider      FileProvider
 	InitialContainers []domain.ResourceSummary
 }
 
@@ -56,6 +66,8 @@ type detailLogsLoadedMsg struct {
 	containerName string
 	metrics       []domain.MetricSample
 	logs          []domain.LogLine
+	shellSession  *domain.ExecSession
+	files         []domain.FileEntry
 	err           error
 }
 
@@ -114,7 +126,13 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.lastActionStatus = msg.status
 		return m, nil
 	case detailLogsLoadedMsg:
-		m.detail = containerdetail.NewModel(msg.containerName, msg.metrics, msg.logs)
+		m.detail = containerdetail.NewModel(
+			msg.containerName,
+			msg.metrics,
+			msg.logs,
+			msg.shellSession,
+			msg.files,
+		)
 		return m, nil
 	case tea.KeyMsg:
 		if m.detail != nil {
@@ -231,10 +249,20 @@ func (m *Model) loadDetailLogsCmd(request browser.OpenContainerDetailRequest) te
 		if m.deps.MetricsProvider != nil {
 			metrics, _ = m.deps.MetricsProvider.ContainerMetrics(request.ResourceID)
 		}
+		var shellSession *domain.ExecSession
+		if m.deps.ShellProvider != nil {
+			shellSession, _ = m.deps.ShellProvider.OpenShell(request.ResourceID)
+		}
+		var files []domain.FileEntry
+		if m.deps.FileProvider != nil {
+			files, _ = m.deps.FileProvider.ListContainerPath(request.ResourceID, "/")
+		}
 		return detailLogsLoadedMsg{
 			containerName: request.ResourceName,
 			metrics:       metrics,
 			logs:          logs,
+			shellSession:  shellSession,
+			files:         files,
 			err:           err,
 		}
 	}

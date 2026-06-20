@@ -361,6 +361,14 @@ func TestNewModelOpensContainerDetailAndShowsLogs(t *testing.T) {
 				{Name: "CPU", Label: "25% of 4 cores"},
 			},
 		},
+		ShellProvider: &stubShellProvider{
+			session: &domain.ExecSession{Command: []string{"/bin/bash"}},
+		},
+		FileProvider: &stubFileProvider{
+			entries: []domain.FileEntry{
+				{Name: "etc", IsDir: true, Mode: "drwxr-xr-x"},
+			},
+		},
 		InitialContainers: []domain.ResourceSummary{
 			{
 				Kind: domain.ResourceKindContainer,
@@ -405,6 +413,18 @@ func TestNewModelOpensContainerDetailAndShowsLogs(t *testing.T) {
 	if !strings.Contains(view, "booting") || !strings.Contains(view, "ready") {
 		t.Fatalf("expected log lines in detail view, got %q", view)
 	}
+
+	nextModel, _ = nextModel.Update(tea.KeyMsg{Type: tea.KeyRight})
+	view = nextModel.View()
+	if !strings.Contains(view, "[Shell]") || !strings.Contains(view, "Shell command: /bin/bash") {
+		t.Fatalf("expected shell detail view, got %q", view)
+	}
+
+	nextModel, _ = nextModel.Update(tea.KeyMsg{Type: tea.KeyRight})
+	view = nextModel.View()
+	if !strings.Contains(view, "[Files]") || !strings.Contains(view, "[d] etc drwxr-xr-x") {
+		t.Fatalf("expected files detail view, got %q", view)
+	}
 }
 
 type stubLogProvider struct {
@@ -425,4 +445,26 @@ type stubMetricsProvider struct {
 func (s *stubMetricsProvider) ContainerMetrics(containerID string) ([]domain.MetricSample, error) {
 	s.containerID = containerID
 	return s.metrics, nil
+}
+
+type stubShellProvider struct {
+	session     *domain.ExecSession
+	containerID string
+}
+
+func (s *stubShellProvider) OpenShell(containerID string) (*domain.ExecSession, error) {
+	s.containerID = containerID
+	return s.session, nil
+}
+
+type stubFileProvider struct {
+	entries      []domain.FileEntry
+	containerID  string
+	path         string
+}
+
+func (s *stubFileProvider) ListContainerPath(containerID string, path string) ([]domain.FileEntry, error) {
+	s.containerID = containerID
+	s.path = path
+	return s.entries, nil
 }

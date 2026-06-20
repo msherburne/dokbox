@@ -15,6 +15,8 @@ type ActionClient interface {
 	Prune(kind domain.ResourceKind) error
 	ContainerLogs(containerID string, tail int) ([]domain.LogLine, error)
 	ContainerMetrics(containerID string) ([]domain.MetricSample, error)
+	OpenShell(containerID string) (*domain.ExecSession, error)
+	ListContainerPath(containerID string, path string) ([]domain.FileEntry, error)
 }
 
 type Service struct {
@@ -65,4 +67,12 @@ func (s *Service) ContainerLogs(containerID string, tail int) ([]domain.LogLine,
 
 func (s *Service) ContainerMetrics(containerID string) ([]domain.MetricSample, error) {
 	return s.client.ContainerMetrics(containerID)
+}
+
+func (s *Service) OpenShell(containerID string) (*domain.ExecSession, error) {
+	return s.client.OpenShell(containerID)
+}
+
+func (s *Service) ListContainerPath(containerID string, path string) ([]domain.FileEntry, error) {
+	return s.client.ListContainerPath(containerID, path)
 }

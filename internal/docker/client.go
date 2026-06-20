@@ -179,6 +179,41 @@ func (c *Client) ContainerMetrics(containerID string) ([]domain.MetricSample, er
 	return metrics, nil
 }
 
+func (c *Client) OpenShell(containerID string) (*domain.ExecSession, error) {
+	command := []string{"/bin/bash"}
+	ok, err := c.shellExists(containerID, "/bin/bash")
+	if err != nil {
+		return nil, err
+	}
+	if !ok {
+		command = []string{"/bin/sh"}
+	}
+
+	return &domain.ExecSession{Command: command}, nil
+}
+
+func (c *Client) ListContainerPath(containerID string, path string) ([]domain.FileEntry, error) {
+	stat, err := c.api.ContainerStatPath(context.Background(), containerID, path)
+	if err != nil {
+		return nil, err
+	}
+
+	name := stat.Name
+	if name == "" {
+		name = path
+	}
+
+	return []domain.FileEntry{
+		{
+			Path:  path,
+			Name:  name,
+			IsDir: stat.Mode.IsDir(),
+			Size:  stat.Size,
+			Mode:  stat.Mode.String(),
+		},
+	}, nil
+}
+
 func calculateCPUCores(stats container.StatsResponse) float64 {
 	cpuDelta := float64(stats.CPUStats.CPUUsage.TotalUsage - stats.PreCPUStats.CPUUsage.TotalUsage)
 	systemDelta := float64(stats.CPUStats.SystemUsage - stats.PreCPUStats.SystemUsage)
@@ -291,6 +326,32 @@ func valueOrDefault(value *float64) float64 {
 		return 0
 	}
 	return *value
+}
+
+func (c *Client) shellExists(containerID string, shell string) (bool, error) {
+	execResponse, err := c.api.ContainerExecCreate(
+		context.Background(),
+		containerID,
+		container.ExecOptions{
+			Cmd:          []string{"test", "-x", shell},
+			AttachStdout: true,
+			AttachStderr: true,
+		},
+	)
+	if err != nil {
+		return false, err
+	}
+
+	if err := c.api.ContainerExecStart(context.Background(), execResponse.ID, container.ExecStartOptions{}); err != nil {
+		return false, err
+	}
+
+	inspect, err := c.api.ContainerExecInspect(context.Background(), execResponse.ID)
+	if err != nil {
+		return false, err
+	}
+
+	return inspect.ExitCode == 0, nil
 }
 
 func (c *Client) Close() error {

@@ -15,6 +15,8 @@ func TestContainerDetailDefaultsToOverviewAndCanShowLogs(t *testing.T) {
 	}, []domain.LogLine{
 		{Text: "booting"},
 		{Text: "ready"},
+	}, &domain.ExecSession{Command: []string{"/bin/bash"}}, []domain.FileEntry{
+		{Name: "etc", IsDir: true, Mode: "drwxr-xr-x"},
 	})
 
 	initialView := model.View()
@@ -41,11 +43,35 @@ func TestContainerDetailDefaultsToOverviewAndCanShowLogs(t *testing.T) {
 }
 
 func TestContainerDetailShowsNoLogsState(t *testing.T) {
-	model := containerdetail.NewModel("api", nil, nil)
+	model := containerdetail.NewModel("api", nil, nil, nil, nil)
 	nextModel, _ := model.Update(tea.KeyMsg{Type: tea.KeyRight})
 
 	logsView := nextModel.View()
 	if !strings.Contains(logsView, "No logs.") {
 		t.Fatalf("expected empty logs state, got %q", logsView)
+	}
+}
+
+func TestContainerDetailShowsShellAndFiles(t *testing.T) {
+	model := containerdetail.NewModel(
+		"api",
+		nil,
+		nil,
+		&domain.ExecSession{Command: []string{"/bin/sh"}},
+		[]domain.FileEntry{{Name: "etc", IsDir: true, Mode: "drwxr-xr-x"}},
+	)
+
+	nextModel, _ := model.Update(tea.KeyMsg{Type: tea.KeyRight})
+	nextModel, _ = nextModel.Update(tea.KeyMsg{Type: tea.KeyRight})
+
+	shellView := nextModel.View()
+	if !strings.Contains(shellView, "[Shell]") || !strings.Contains(shellView, "Shell command: /bin/sh") {
+		t.Fatalf("expected shell view, got %q", shellView)
+	}
+
+	nextModel, _ = nextModel.Update(tea.KeyMsg{Type: tea.KeyRight})
+	filesView := nextModel.View()
+	if !strings.Contains(filesView, "[Files]") || !strings.Contains(filesView, "[d] etc drwxr-xr-x") {
+		t.Fatalf("expected files view, got %q", filesView)
 	}
 }

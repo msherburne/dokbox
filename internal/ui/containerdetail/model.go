@@ -15,15 +15,25 @@ type Model struct {
 	containerName string
 	metrics       []domain.MetricSample
 	logs          []domain.LogLine
+	shellSession  *domain.ExecSession
+	files         []domain.FileEntry
 	tabs          []tab
 	activeTab     int
 }
 
-func NewModel(containerName string, metrics []domain.MetricSample, logs []domain.LogLine) *Model {
+func NewModel(
+	containerName string,
+	metrics []domain.MetricSample,
+	logs []domain.LogLine,
+	shellSession *domain.ExecSession,
+	files []domain.FileEntry,
+) *Model {
 	return &Model{
 		containerName: containerName,
 		metrics:       append([]domain.MetricSample(nil), metrics...),
 		logs:          append([]domain.LogLine(nil), logs...),
+		shellSession:  shellSession,
+		files:         append([]domain.FileEntry(nil), files...),
 		tabs: []tab{
 			{title: "Overview"},
 			{title: "Logs"},
@@ -82,9 +92,24 @@ func (m *Model) activeContent() string {
 		}
 		return strings.Join(lines, "\n")
 	case "Shell":
-		return "Shell view coming soon."
+		if m.shellSession == nil || len(m.shellSession.Command) == 0 {
+			return "Shell unavailable."
+		}
+		return "Shell command: " + strings.Join(m.shellSession.Command, " ")
 	case "Files":
-		return "Files view coming soon."
+		if len(m.files) == 0 {
+			return "No readable entries."
+		}
+
+		lines := make([]string, 0, len(m.files))
+		for _, entry := range m.files {
+			prefix := "[f]"
+			if entry.IsDir {
+				prefix = "[d]"
+			}
+			lines = append(lines, prefix+" "+entry.Name+" "+entry.Mode)
+		}
+		return strings.Join(lines, "\n")
 	default:
 		if len(m.metrics) == 0 {
 			return "No metrics."

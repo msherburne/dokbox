@@ -15,6 +15,8 @@ type pingClientStub struct {
 	startedID string
 	logLines  []domain.LogLine
 	metrics   []domain.MetricSample
+	session   *domain.ExecSession
+	files     []domain.FileEntry
 }
 
 func (c *pingClientStub) Ping(context.Context) error {
@@ -49,6 +51,14 @@ func (c *pingClientStub) ContainerLogs(string, int) ([]domain.LogLine, error) {
 
 func (c *pingClientStub) ContainerMetrics(string) ([]domain.MetricSample, error) {
 	return c.metrics, nil
+}
+
+func (c *pingClientStub) OpenShell(string) (*domain.ExecSession, error) {
+	return c.session, nil
+}
+
+func (c *pingClientStub) ListContainerPath(string, string) ([]domain.FileEntry, error) {
+	return c.files, nil
 }
 
 func TestCheckConnectionReturnsConnectedAfterPing(t *testing.T) {
@@ -141,5 +151,37 @@ func TestContainerMetricsDelegatesToClient(t *testing.T) {
 
 	if len(metrics) != 1 || metrics[0].Name != "CPU" {
 		t.Fatalf("unexpected metrics: %#v", metrics)
+	}
+}
+
+func TestOpenShellDelegatesToClient(t *testing.T) {
+	client := &pingClientStub{
+		session: &domain.ExecSession{Command: []string{"/bin/bash"}},
+	}
+	service := docker.NewService(client)
+
+	session, err := service.OpenShell("container-1")
+	if err != nil {
+		t.Fatalf("expected open shell to succeed, got %v", err)
+	}
+
+	if session == nil || len(session.Command) != 1 || session.Command[0] != "/bin/bash" {
+		t.Fatalf("unexpected shell session: %#v", session)
+	}
+}
+
+func TestListContainerPathDelegatesToClient(t *testing.T) {
+	client := &pingClientStub{
+		files: []domain.FileEntry{{Name: "etc", IsDir: true, Mode: "drwxr-xr-x"}},
+	}
+	service := docker.NewService(client)
+
+	files, err := service.ListContainerPath("container-1", "/")
+	if err != nil {
+		t.Fatalf("expected file listing to succeed, got %v", err)
+	}
+
+	if len(files) != 1 || files[0].Name != "etc" {
+		t.Fatalf("unexpected files: %#v", files)
 	}
 }
