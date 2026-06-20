@@ -14,6 +14,27 @@ var resourceColumns = map[domain.ResourceKind][]string{
 		"State",
 		"Status",
 	},
+	domain.ResourceKindImage: {
+		"Repository",
+		"Tag",
+		"Image ID",
+		"Size",
+		"Created",
+	},
+	domain.ResourceKindVolume: {
+		"Name",
+		"Driver",
+		"Scope",
+		"Mountpoint",
+		"Created",
+	},
+	domain.ResourceKindNetwork: {
+		"Name",
+		"Driver",
+		"Scope",
+		"Flags",
+		"Containers",
+	},
 }
 
 func ResourceColumns(kind domain.ResourceKind) []string {
@@ -24,22 +45,36 @@ func ResourceColumns(kind domain.ResourceKind) []string {
 }
 
 func ResourceRow(summary domain.ResourceSummary) []string {
-	if summary.Kind != domain.ResourceKindContainer {
-		return []string{summary.Name}
+	if summary.Kind == domain.ResourceKindContainer {
+		stack := summary.Group
+		if stack == "" {
+			stack = "Ungrouped"
+		}
+
+		return []string{
+			stack,
+			summary.Name,
+			valueOrDash(summary.Columns, "Image"),
+			valueOrDash(summary.Columns, "State"),
+			valueOrDash(summary.Columns, "Status"),
+		}
 	}
 
-	stack := summary.Group
-	if stack == "" {
-		stack = "Ungrouped"
+	row := make([]string, 0, len(ResourceColumns(summary.Kind)))
+	for _, column := range ResourceColumns(summary.Kind) {
+		if column == "Name" {
+			row = append(row, summary.Name)
+			continue
+		}
+		if column == "Repository" {
+			if value := valueOrDash(summary.Columns, "Repository"); value != "-" {
+				row = append(row, value)
+				continue
+			}
+		}
+		row = append(row, valueOrDash(summary.Columns, column))
 	}
-
-	return []string{
-		stack,
-		summary.Name,
-		valueOrDash(summary.Columns, "Image"),
-		valueOrDash(summary.Columns, "State"),
-		valueOrDash(summary.Columns, "Status"),
-	}
+	return row
 }
 
 func FormatRow(columns []string, row []string) string {

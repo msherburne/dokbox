@@ -13,6 +13,12 @@ func BrowserShortcuts(context string) []ShortcutHint {
 			{Key: "Enter", Label: "Open Details"},
 			{Key: "q", Label: "Back To Tabs"},
 		}
+	case "images-table", "volumes-table", "networks-table":
+		return []ShortcutHint{
+			{Key: "Up/Down", Label: "Rows"},
+			{Key: "Enter", Label: "Open Details"},
+			{Key: "q", Label: "Back To Tabs"},
+		}
 	default:
 		return []ShortcutHint{
 			{Key: "Left/Right", Label: "Switch Tabs"},

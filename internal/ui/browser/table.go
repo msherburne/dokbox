@@ -8,15 +8,17 @@ import (
 )
 
 type tableModel struct {
+	kind    domain.ResourceKind
 	columns []string
 	rows    []domain.ResourceSummary
 	cursor  int
 }
 
-func newContainerTable(resources []domain.ResourceSummary) tableModel {
+func newTable(kind domain.ResourceKind, resources []domain.ResourceSummary) tableModel {
 	return tableModel{
-		columns: viewmodel.ResourceColumns(domain.ResourceKindContainer),
-		rows:    resources,
+		kind:    kind,
+		columns: viewmodel.ResourceColumns(kind),
+		rows:    filterResourcesByKind(resources, kind),
 	}
 }
 
@@ -40,7 +42,7 @@ func (t *tableModel) MoveUp() {
 
 func (t tableModel) View(focused bool) string {
 	if len(t.rows) == 0 {
-		return "No containers found."
+		return "No resources found."
 	}
 
 	lines := []string{
@@ -60,4 +62,14 @@ func (t tableModel) View(focused bool) string {
 	}
 
 	return strings.Join(lines, "\n")
+}
+
+func filterResourcesByKind(resources []domain.ResourceSummary, kind domain.ResourceKind) []domain.ResourceSummary {
+	filtered := make([]domain.ResourceSummary, 0, len(resources))
+	for _, resource := range resources {
+		if resource.Kind == kind {
+			filtered = append(filtered, resource)
+		}
+	}
+	return filtered
 }

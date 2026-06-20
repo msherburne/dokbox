@@ -3,7 +3,7 @@ package browser
 import "strings"
 
 type tab struct {
-	id    string
+	kind  string
 	title string
 }
 
