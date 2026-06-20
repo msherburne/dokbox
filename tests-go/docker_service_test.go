@@ -6,16 +6,39 @@ import (
 	"testing"
 
 	"github.com/msherburne/dokbox/internal/docker"
+	"github.com/msherburne/dokbox/internal/domain"
 )
 
 type pingClientStub struct {
 	err       error
 	pingCalls int
+	startedID string
 }
 
 func (c *pingClientStub) Ping(context.Context) error {
 	c.pingCalls++
 	return c.err
+}
+
+func (c *pingClientStub) StartContainer(containerID string) error {
+	c.startedID = containerID
+	return nil
+}
+
+func (c *pingClientStub) StopContainer(string) error {
+	return nil
+}
+
+func (c *pingClientStub) RestartContainer(string) error {
+	return nil
+}
+
+func (c *pingClientStub) RemoveResource(domain.ResourceKind, string) error {
+	return nil
+}
+
+func (c *pingClientStub) Prune(domain.ResourceKind) error {
+	return nil
 }
 
 func TestCheckConnectionReturnsConnectedAfterPing(t *testing.T) {
@@ -63,5 +86,18 @@ func TestStatusCheckerReturnsFailureWhenClientBootstrapFails(t *testing.T) {
 
 	if result.Message == "" {
 		t.Fatalf("expected bootstrap failure message, got %#v", result)
+	}
+}
+
+func TestStartContainerDelegatesToClient(t *testing.T) {
+	client := &pingClientStub{}
+	service := docker.NewService(client)
+
+	if err := service.StartContainer("container-1"); err != nil {
+		t.Fatalf("expected start to succeed, got %v", err)
+	}
+
+	if client.startedID != "container-1" {
+		t.Fatalf("expected container start delegation, got %q", client.startedID)
 	}
 }

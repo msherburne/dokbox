@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"time"
 
@@ -14,8 +15,17 @@ type ConnectionChecker interface {
 	CheckConnection(context.Context) domain.ConnectionStatus
 }
 
+type ActionRunner interface {
+	StartContainer(containerID string) error
+	StopContainer(containerID string) error
+	RestartContainer(containerID string) error
+	RemoveResource(kind domain.ResourceKind, resourceID string) error
+	Prune(kind domain.ResourceKind) error
+}
+
 type Dependencies struct {
 	ConnectionChecker ConnectionChecker
+	ActionRunner      ActionRunner
 	InitialContainers []domain.ResourceSummary
 }
 
@@ -27,11 +37,16 @@ type startupCompleteMsg struct {
 	connectionStatus *domain.ConnectionStatus
 }
 
+type actionResultMsg struct {
+	status string
+}
+
 const connectionCheckTimeout = 2 * time.Second
 
 type Model struct {
 	ready            bool
 	connectionStatus *domain.ConnectionStatus
+	lastActionStatus string
 	deps             Dependencies
 	browser          *browser.Model
 }
@@ -68,6 +83,14 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case connectionStatusMsg:
 		m.ready = true
 		m.connectionStatus = msg.connectionStatus
+		return m, nil
+	case browser.ActionRequest:
+		if m.deps.ActionRunner == nil {
+			return m, nil
+		}
+		return m, m.runActionCmd(msg)
+	case actionResultMsg:
+		m.lastActionStatus = msg.status
 		return m, nil
 	case tea.KeyMsg:
 		switch msg.String() {
@@ -121,5 +144,36 @@ func (m *Model) View() string {
 		lines = append(lines, "", m.browser.View())
 	}
 
+	if m.lastActionStatus != "" {
+		lines = append(lines, "", "Last action: "+m.lastActionStatus)
+	}
+
 	return ShellStyle.Render(strings.Join(lines, "\n"))
+}
+
+func (m *Model) runActionCmd(request browser.ActionRequest) tea.Cmd {
+	return func() tea.Msg {
+		var err error
+
+		switch request.Action {
+		case "start":
+			err = m.deps.ActionRunner.StartContainer(request.ResourceID)
+		case "stop":
+			err = m.deps.ActionRunner.StopContainer(request.ResourceID)
+		case "restart":
+			err = m.deps.ActionRunner.RestartContainer(request.ResourceID)
+		case "remove":
+			err = m.deps.ActionRunner.RemoveResource(request.Kind, request.ResourceID)
+		case "prune":
+			err = m.deps.ActionRunner.Prune(request.Kind)
+		}
+
+		if err != nil {
+			return actionResultMsg{
+				status: fmt.Sprintf("%s %s failed: %v", request.Action, request.ResourceName, err),
+			}
+		}
+
+		return actionResultMsg{status: request.Action + " " + request.ResourceName}
+	}
 }

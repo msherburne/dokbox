@@ -144,6 +144,32 @@ func TestBrowserModelSwitchesTabsAndRendersKindSpecificRows(t *testing.T) {
 	}
 }
 
+func TestBrowserModelOpensContainerActionsMenu(t *testing.T) {
+	model := browser.NewModel([]domain.ResourceSummary{
+		containerSummary("1", "api", "Running", "Up 2 hours", "compose"),
+	})
+
+	nextModel, cmd := model.Update(browserKeyMsg("enter"))
+	if cmd != nil {
+		t.Fatal("expected enter to focus table without command")
+	}
+
+	browserModel := nextModel.(*browser.Model)
+	nextModel, cmd = browserModel.Update(browserKeyMsg("o"))
+	if cmd != nil {
+		t.Fatal("expected actions menu to open without immediate command")
+	}
+
+	browserModel = nextModel.(*browser.Model)
+	view := browserModel.View()
+	if !strings.Contains(view, "Actions: api") {
+		t.Fatalf("expected actions menu for selected container, got %q", view)
+	}
+	if !strings.Contains(view, "s Start") || !strings.Contains(view, "x Remove") {
+		t.Fatalf("expected action key hints in menu, got %q", view)
+	}
+}
+
 func browserKeyMsg(key string) tea.KeyMsg {
 	return tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(key)}
 }

@@ -6,15 +6,20 @@ import (
 	"github.com/msherburne/dokbox/internal/domain"
 )
 
-type PingClient interface {
+type ActionClient interface {
 	Ping(context.Context) error
+	StartContainer(containerID string) error
+	StopContainer(containerID string) error
+	RestartContainer(containerID string) error
+	RemoveResource(kind domain.ResourceKind, resourceID string) error
+	Prune(kind domain.ResourceKind) error
 }
 
 type Service struct {
-	client PingClient
+	client ActionClient
 }
 
-func NewService(client PingClient) *Service {
+func NewService(client ActionClient) *Service {
 	return &Service{client: client}
 }
 
@@ -30,4 +35,24 @@ func (s *Service) CheckConnection(ctx context.Context) domain.ConnectionStatus {
 		OK:      true,
 		Message: "Connected",
 	}
+}
+
+func (s *Service) StartContainer(containerID string) error {
+	return s.client.StartContainer(containerID)
+}
+
+func (s *Service) StopContainer(containerID string) error {
+	return s.client.StopContainer(containerID)
+}
+
+func (s *Service) RestartContainer(containerID string) error {
+	return s.client.RestartContainer(containerID)
+}
+
+func (s *Service) RemoveResource(kind domain.ResourceKind, resourceID string) error {
+	return s.client.RemoveResource(kind, resourceID)
+}
+
+func (s *Service) Prune(kind domain.ResourceKind) error {
+	return s.client.Prune(kind)
 }

@@ -243,6 +243,55 @@ func TestNewModelLetsBrowserHandleQWhenTableIsFocused(t *testing.T) {
 	}
 }
 
+func TestNewModelRunsContainerStartAction(t *testing.T) {
+	runner := &stubActionRunner{}
+	model := app.NewModel(app.Dependencies{
+		ActionRunner: runner,
+		InitialContainers: []domain.ResourceSummary{
+			{
+				Kind: domain.ResourceKindContainer,
+				ID:   "container-1",
+				Name: "api",
+				Columns: map[string]string{
+					"Image":  "nginx:latest",
+					"State":  "Running",
+					"Status": "Up 2 hours",
+				},
+			},
+		},
+	})
+
+	startupMsg := model.Init()()
+	nextModel, _ := model.Update(startupMsg)
+	nextModel, _ = nextModel.Update(keyMsg("enter"))
+	nextModel, cmd := nextModel.Update(keyMsg("o"))
+	if cmd != nil {
+		t.Fatal("expected opening actions menu to avoid side effects")
+	}
+
+	nextModel, cmd = nextModel.Update(keyMsg("s"))
+	if cmd == nil {
+		t.Fatal("expected start action to schedule execution")
+	}
+
+	actionMsg := cmd()
+	nextModel, cmd = nextModel.Update(actionMsg)
+	if cmd == nil {
+		t.Fatal("expected action request to schedule mutation command")
+	}
+
+	resultMsg := cmd()
+	nextModel, _ = nextModel.Update(resultMsg)
+
+	if runner.startedID != "container-1" {
+		t.Fatalf("expected start action for selected container, got %q", runner.startedID)
+	}
+
+	if !strings.Contains(nextModel.View(), "Last action: start api") {
+		t.Fatalf("expected last action status in view, got %q", nextModel.View())
+	}
+}
+
 func keyMsg(key string) tea.KeyMsg {
 	return tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(key)}
 }
@@ -272,4 +321,29 @@ func (blockingConnectionChecker) CheckConnection(ctx context.Context) domain.Con
 		OK:      false,
 		Message: ctx.Err().Error(),
 	}
+}
+
+type stubActionRunner struct {
+	startedID string
+}
+
+func (s *stubActionRunner) StartContainer(containerID string) error {
+	s.startedID = containerID
+	return nil
+}
+
+func (s *stubActionRunner) StopContainer(string) error {
+	return nil
+}
+
+func (s *stubActionRunner) RestartContainer(string) error {
+	return nil
+}
+
+func (s *stubActionRunner) RemoveResource(domain.ResourceKind, string) error {
+	return nil
+}
+
+func (s *stubActionRunner) Prune(domain.ResourceKind) error {
+	return nil
 }

@@ -64,6 +64,15 @@ func (t tableModel) View(focused bool) string {
 	return strings.Join(lines, "\n")
 }
 
+func (t tableModel) Selected() *domain.ResourceSummary {
+	if len(t.rows) == 0 || t.cursor < 0 || t.cursor >= len(t.rows) {
+		return nil
+	}
+
+	selected := t.rows[t.cursor]
+	return &selected
+}
+
 func filterResourcesByKind(resources []domain.ResourceSummary, kind domain.ResourceKind) []domain.ResourceSummary {
 	filtered := make([]domain.ResourceSummary, 0, len(resources))
 	for _, resource := range resources {

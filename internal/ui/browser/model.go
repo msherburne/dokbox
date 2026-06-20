@@ -20,6 +20,14 @@ type Model struct {
 	activeTab int
 	focus     focusTarget
 	tables    map[domain.ResourceKind]*tableModel
+	actionsOpen bool
+}
+
+type ActionRequest struct {
+	Action       string
+	ResourceID   string
+	ResourceName string
+	Kind         domain.ResourceKind
 }
 
 func NewModel(resources []domain.ResourceSummary) *Model {
@@ -57,6 +65,31 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
+	if m.actionsOpen {
+		switch keyMsg.String() {
+		case "q", "esc":
+			m.actionsOpen = false
+			return m, nil
+		case "s", "t", "r", "x", "p":
+			selected := m.currentTable().Selected()
+			m.actionsOpen = false
+			if selected == nil {
+				return m, nil
+			}
+
+			return m, func() tea.Msg {
+				return ActionRequest{
+					Action:       actionNameForKey(keyMsg.String()),
+					ResourceID:   selected.ID,
+					ResourceName: selected.Name,
+					Kind:         selected.Kind,
+				}
+			}
+		default:
+			return m, nil
+		}
+	}
+
 	switch m.focus {
 	case focusTabs:
 		switch keyMsg.String() {
@@ -78,6 +111,10 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			table.MoveUp()
 		case "down":
 			table.MoveDown()
+		case "o":
+			if m.currentTabKind() == string(domain.ResourceKindContainer) && table.Selected() != nil {
+				m.actionsOpen = true
+			}
 		case "q":
 			m.focus = focusTabs
 		}
@@ -91,9 +128,13 @@ func (m *Model) View() string {
 		renderTabs(m.tabs, m.activeTab),
 		"",
 		m.currentTable().View(m.focus == focusTable),
-		"",
-		renderShortcuts(m.shortcutContext()),
 	}
+
+	if m.actionsOpen {
+		lines = append(lines, "", m.renderActionsMenu())
+	}
+
+	lines = append(lines, "", renderShortcuts(m.shortcutContext()))
 
 	return strings.Join(lines, "\n")
 }
@@ -133,4 +174,40 @@ func (m *Model) currentTable() *tableModel {
 
 func (m *Model) currentTabKind() string {
 	return m.tabs[m.activeTab].kind
+}
+
+func (m *Model) renderActionsMenu() string {
+	selected := m.currentTable().Selected()
+	if selected == nil {
+		return ""
+	}
+
+	lines := []string{
+		"Actions: " + selected.Name,
+		"s Start",
+		"t Stop",
+		"r Restart",
+		"x Remove",
+		"p Prune",
+		"q Cancel",
+	}
+
+	return strings.Join(lines, "\n")
+}
+
+func actionNameForKey(key string) string {
+	switch key {
+	case "s":
+		return "start"
+	case "t":
+		return "stop"
+	case "r":
+		return "restart"
+	case "x":
+		return "remove"
+	case "p":
+		return "prune"
+	default:
+		return ""
+	}
 }
