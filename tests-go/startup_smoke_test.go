@@ -1,9 +1,13 @@
 package testsgo
 
 import (
-	"github.com/msherburne/dokbox/internal/app"
+	"context"
 	"strings"
 	"testing"
+
+	tea "github.com/charmbracelet/bubbletea"
+	"github.com/msherburne/dokbox/internal/app"
+	"github.com/msherburne/dokbox/internal/domain"
 )
 
 func TestNewModelBootstrapsIntoReadyShell(t *testing.T) {
@@ -39,5 +43,208 @@ func TestNewModelBootstrapsIntoReadyShell(t *testing.T) {
 
 	if strings.Contains(readyView, "Bootstrapping shell") {
 		t.Fatalf("expected bootstrap copy to clear after startup, got %q", readyView)
+	}
+}
+
+func TestNewModelShowsConnectedDockerStatusInReadyShell(t *testing.T) {
+	model := app.NewModel(app.Dependencies{
+		ConnectionChecker: &stubConnectionChecker{
+			status: domain.ConnectionStatus{OK: true, Message: "Connected"},
+		},
+	})
+
+	startupMsg := model.Init()()
+	nextModel, nextCmd := model.Update(startupMsg)
+	if nextCmd != nil {
+		t.Fatal("expected startup update to finish without follow-up command")
+	}
+
+	readyView := nextModel.View()
+	if !strings.Contains(readyView, "Docker: Connected") {
+		t.Fatalf("expected connected docker status, got %q", readyView)
+	}
+}
+
+func TestNewModelShowsDockerConnectionFailureWithoutExitingShell(t *testing.T) {
+	model := app.NewModel(app.Dependencies{
+		ConnectionChecker: &stubConnectionChecker{
+			status: domain.ConnectionStatus{
+				OK:      false,
+				Message: "permission denied while trying to connect",
+			},
+		},
+	})
+
+	startupMsg := model.Init()()
+	nextModel, nextCmd := model.Update(startupMsg)
+	if nextCmd != nil {
+		t.Fatal("expected failed connection startup to finish without follow-up command")
+	}
+
+	readyView := nextModel.View()
+	if !strings.Contains(readyView, "Docker connection failed: permission denied while trying to connect") {
+		t.Fatalf("expected connection failure copy, got %q", readyView)
+	}
+	if !strings.Contains(readyView, "Press q to quit.") {
+		t.Fatalf("expected shell to remain usable after connection failure, got %q", readyView)
+	}
+}
+
+func TestNewModelShowsStartupFailureWithoutExitingShell(t *testing.T) {
+	model := app.NewModel(app.Dependencies{
+		ConnectionChecker: &stubConnectionChecker{
+			status: domain.ConnectionStatus{
+				OK:      false,
+				Message: "invalid docker host",
+			},
+		},
+	})
+
+	startupMsg := model.Init()()
+	nextModel, nextCmd := model.Update(startupMsg)
+	if nextCmd != nil {
+		t.Fatal("expected startup failure to finish without follow-up command")
+	}
+
+	readyView := nextModel.View()
+	if !strings.Contains(readyView, "Docker connection failed: invalid docker host") {
+		t.Fatalf("expected startup failure copy, got %q", readyView)
+	}
+	if !strings.Contains(readyView, "Press q to quit.") {
+		t.Fatalf("expected shell to remain usable after startup failure, got %q", readyView)
+	}
+}
+
+func TestNewModelRefreshesRuntimeConnectionStatus(t *testing.T) {
+	checker := &stubConnectionChecker{
+		statuses: []domain.ConnectionStatus{
+			{OK: true, Message: "Connected"},
+			{OK: false, Message: "daemon unreachable"},
+		},
+	}
+	model := app.NewModel(app.Dependencies{
+		ConnectionChecker: checker,
+	})
+
+	startupMsg := model.Init()()
+	nextModel, nextCmd := model.Update(startupMsg)
+	if nextCmd != nil {
+		t.Fatal("expected startup update to finish without follow-up command")
+	}
+
+	readyView := nextModel.View()
+	if !strings.Contains(readyView, "Docker: Connected") {
+		t.Fatalf("expected connected startup status, got %q", readyView)
+	}
+
+	refreshedModel, refreshCmd := nextModel.Update(keyMsg("r"))
+	if refreshCmd == nil {
+		t.Fatal("expected refresh command after runtime refresh key")
+	}
+
+	refreshMsg := refreshCmd()
+	if refreshMsg == nil {
+		t.Fatal("expected refresh command to emit a message")
+	}
+
+	refreshedModel, nextCmd = refreshedModel.Update(refreshMsg)
+	if nextCmd != nil {
+		t.Fatal("expected refresh update to finish without follow-up command")
+	}
+
+	refreshedView := refreshedModel.View()
+	if !strings.Contains(refreshedView, "Docker connection failed: daemon unreachable") {
+		t.Fatalf("expected runtime failure status, got %q", refreshedView)
+	}
+}
+
+func TestNewModelRefreshesFromStartupFailureToConnected(t *testing.T) {
+	checker := &stubConnectionChecker{
+		statuses: []domain.ConnectionStatus{
+			{OK: false, Message: "invalid docker host"},
+			{OK: true, Message: "Connected"},
+		},
+	}
+	model := app.NewModel(app.Dependencies{
+		ConnectionChecker: checker,
+	})
+
+	startupMsg := model.Init()()
+	nextModel, nextCmd := model.Update(startupMsg)
+	if nextCmd != nil {
+		t.Fatal("expected startup update to finish without follow-up command")
+	}
+
+	readyView := nextModel.View()
+	if !strings.Contains(readyView, "Docker connection failed: invalid docker host") {
+		t.Fatalf("expected startup failure status, got %q", readyView)
+	}
+
+	refreshedModel, refreshCmd := nextModel.Update(keyMsg("r"))
+	if refreshCmd == nil {
+		t.Fatal("expected refresh command after startup failure")
+	}
+
+	refreshMsg := refreshCmd()
+	if refreshMsg == nil {
+		t.Fatal("expected refresh command to emit a message")
+	}
+
+	refreshedModel, nextCmd = refreshedModel.Update(refreshMsg)
+	if nextCmd != nil {
+		t.Fatal("expected refresh update to finish without follow-up command")
+	}
+
+	refreshedView := refreshedModel.View()
+	if !strings.Contains(refreshedView, "Docker: Connected") {
+		t.Fatalf("expected recovered docker status, got %q", refreshedView)
+	}
+}
+
+func TestNewModelTimesOutHungConnectionChecks(t *testing.T) {
+	model := app.NewModel(app.Dependencies{
+		ConnectionChecker: blockingConnectionChecker{},
+	})
+
+	startupMsg := model.Init()()
+	nextModel, nextCmd := model.Update(startupMsg)
+	if nextCmd != nil {
+		t.Fatal("expected timeout startup to finish without follow-up command")
+	}
+
+	readyView := nextModel.View()
+	if !strings.Contains(readyView, "Docker connection failed: context deadline exceeded") {
+		t.Fatalf("expected timeout failure copy, got %q", readyView)
+	}
+}
+
+func keyMsg(key string) tea.KeyMsg {
+	return tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(key)}
+}
+
+type stubConnectionChecker struct {
+	status   domain.ConnectionStatus
+	statuses []domain.ConnectionStatus
+	calls    int
+}
+
+func (s *stubConnectionChecker) CheckConnection(context.Context) domain.ConnectionStatus {
+	if len(s.statuses) > 0 {
+		status := s.statuses[s.calls]
+		if s.calls < len(s.statuses)-1 {
+			s.calls++
+		}
+		return status
+	}
+	return s.status
+}
+
+type blockingConnectionChecker struct{}
+
+func (blockingConnectionChecker) CheckConnection(ctx context.Context) domain.ConnectionStatus {
+	<-ctx.Done()
+	return domain.ConnectionStatus{
+		OK:      false,
+		Message: ctx.Err().Error(),
 	}
 }
