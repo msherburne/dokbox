@@ -37,8 +37,8 @@ func TestNewModelBootstrapsIntoReadyShell(t *testing.T) {
 	}
 
 	readyView := nextModel.View()
-	if !strings.Contains(readyView, "Starting rewrite shell") {
-		t.Fatalf("expected ready shell view, got %q", readyView)
+	if !strings.Contains(readyView, "Containers") {
+		t.Fatalf("expected browser shell view, got %q", readyView)
 	}
 
 	if strings.Contains(readyView, "Bootstrapping shell") {
@@ -85,7 +85,7 @@ func TestNewModelShowsDockerConnectionFailureWithoutExitingShell(t *testing.T) {
 	if !strings.Contains(readyView, "Docker connection failed: permission denied while trying to connect") {
 		t.Fatalf("expected connection failure copy, got %q", readyView)
 	}
-	if !strings.Contains(readyView, "Press q to quit.") {
+	if !strings.Contains(readyView, "q Quit") {
 		t.Fatalf("expected shell to remain usable after connection failure, got %q", readyView)
 	}
 }
@@ -110,7 +110,7 @@ func TestNewModelShowsStartupFailureWithoutExitingShell(t *testing.T) {
 	if !strings.Contains(readyView, "Docker connection failed: invalid docker host") {
 		t.Fatalf("expected startup failure copy, got %q", readyView)
 	}
-	if !strings.Contains(readyView, "Press q to quit.") {
+	if !strings.Contains(readyView, "q Quit") {
 		t.Fatalf("expected shell to remain usable after startup failure, got %q", readyView)
 	}
 }
@@ -215,6 +215,31 @@ func TestNewModelTimesOutHungConnectionChecks(t *testing.T) {
 	readyView := nextModel.View()
 	if !strings.Contains(readyView, "Docker connection failed: context deadline exceeded") {
 		t.Fatalf("expected timeout failure copy, got %q", readyView)
+	}
+}
+
+func TestNewModelLetsBrowserHandleQWhenTableIsFocused(t *testing.T) {
+	model := app.NewModel(app.Dependencies{})
+
+	startupMsg := model.Init()()
+	nextModel, nextCmd := model.Update(startupMsg)
+	if nextCmd != nil {
+		t.Fatal("expected startup update to finish without follow-up command")
+	}
+
+	nextModel, nextCmd = nextModel.Update(keyMsg("enter"))
+	if nextCmd != nil {
+		t.Fatal("expected enter to focus browser table without quit")
+	}
+
+	nextModel, nextCmd = nextModel.Update(keyMsg("q"))
+	if nextCmd != nil {
+		t.Fatal("expected q to return browser focus to tabs instead of quitting")
+	}
+
+	view := nextModel.View()
+	if !strings.Contains(view, "Enter Focus Table") {
+		t.Fatalf("expected tab shortcuts after returning focus, got %q", view)
 	}
 }
 

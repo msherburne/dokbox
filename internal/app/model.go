@@ -7,6 +7,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/msherburne/dokbox/internal/domain"
+	"github.com/msherburne/dokbox/internal/ui/browser"
 )
 
 type ConnectionChecker interface {
@@ -15,6 +16,7 @@ type ConnectionChecker interface {
 
 type Dependencies struct {
 	ConnectionChecker ConnectionChecker
+	InitialContainers []domain.ResourceSummary
 }
 
 type connectionStatusMsg struct {
@@ -31,10 +33,14 @@ type Model struct {
 	ready            bool
 	connectionStatus *domain.ConnectionStatus
 	deps             Dependencies
+	browser          *browser.Model
 }
 
 func NewModel(deps Dependencies) *Model {
-	return &Model{deps: deps}
+	return &Model{
+		deps:    deps,
+		browser: browser.NewModel(deps.InitialContainers),
+	}
 }
 
 func (m *Model) Init() tea.Cmd {
@@ -65,12 +71,29 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case tea.KeyMsg:
 		switch msg.String() {
-		case "ctrl+c", QuitKey:
+		case "ctrl+c":
 			return m, tea.Quit
 		case "r":
 			if m.deps.ConnectionChecker != nil {
 				return m, m.checkConnectionCmd()
 			}
+		case QuitKey:
+			if m.browser != nil && m.browser.TableFocused() {
+				nextBrowser, cmd := m.browser.Update(msg)
+				if next, ok := nextBrowser.(*browser.Model); ok {
+					m.browser = next
+				}
+				return m, cmd
+			}
+			return m, tea.Quit
+		}
+
+		if m.ready && m.browser != nil {
+			nextBrowser, cmd := m.browser.Update(msg)
+			if next, ok := nextBrowser.(*browser.Model); ok {
+				m.browser = next
+			}
+			return m, cmd
 		}
 	}
 
@@ -84,8 +107,6 @@ func (m *Model) View() string {
 
 	lines := []string{
 		"dokbox-go",
-		"",
-		"Starting rewrite shell...",
 	}
 
 	if m.connectionStatus != nil {
@@ -96,6 +117,9 @@ func (m *Model) View() string {
 		}
 	}
 
-	lines = append(lines, "", "Press q to quit.")
+	if m.browser != nil {
+		lines = append(lines, "", m.browser.View())
+	}
+
 	return ShellStyle.Render(strings.Join(lines, "\n"))
 }
