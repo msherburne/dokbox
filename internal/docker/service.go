@@ -17,6 +17,7 @@ type ActionClient interface {
 	ContainerMetrics(containerID string) ([]domain.MetricSample, error)
 	OpenShell(containerID string) (*domain.ExecSession, error)
 	ListContainerPath(containerID string, path string) ([]domain.FileEntry, error)
+	ListResourceSummaries() ([]domain.ResourceSummary, error)
 }
 
 type Service struct {
@@ -75,4 +76,8 @@ func (s *Service) OpenShell(containerID string) (*domain.ExecSession, error) {
 
 func (s *Service) ListContainerPath(containerID string, path string) ([]domain.FileEntry, error) {
 	return s.client.ListContainerPath(containerID, path)
+}
+
+func (s *Service) ListResourceSummaries() ([]domain.ResourceSummary, error) {
+	return s.client.ListResourceSummaries()
 }

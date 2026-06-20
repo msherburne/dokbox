@@ -15,6 +15,8 @@ import (
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/api/types/filters"
 	"github.com/docker/docker/api/types/image"
+	"github.com/docker/docker/api/types/network"
+	"github.com/docker/docker/api/types/volume"
 	dockerclient "github.com/docker/docker/client"
 	"github.com/msherburne/dokbox/internal/domain"
 )
@@ -214,6 +216,48 @@ func (c *Client) ListContainerPath(containerID string, path string) ([]domain.Fi
 	}, nil
 }
 
+func (c *Client) ListResourceSummaries() ([]domain.ResourceSummary, error) {
+	ctx := context.Background()
+	summaries := make([]domain.ResourceSummary, 0)
+
+	containers, err := c.api.ContainerList(ctx, container.ListOptions{All: true})
+	if err != nil {
+		return nil, err
+	}
+	for _, item := range containers {
+		summaries = append(summaries, resourceSummaryForContainer(item))
+	}
+
+	images, err := c.api.ImageList(ctx, image.ListOptions{All: true})
+	if err != nil {
+		return nil, err
+	}
+	for _, item := range images {
+		summaries = append(summaries, resourceSummaryForImage(item))
+	}
+
+	volumes, err := c.api.VolumeList(ctx, volume.ListOptions{})
+	if err != nil {
+		return nil, err
+	}
+	for _, item := range volumes.Volumes {
+		if item == nil {
+			continue
+		}
+		summaries = append(summaries, resourceSummaryForVolume(*item))
+	}
+
+	networks, err := c.api.NetworkList(ctx, network.ListOptions{})
+	if err != nil {
+		return nil, err
+	}
+	for _, item := range networks {
+		summaries = append(summaries, resourceSummaryForNetwork(item))
+	}
+
+	return summaries, nil
+}
+
 func calculateCPUCores(stats container.StatsResponse) float64 {
 	cpuDelta := float64(stats.CPUStats.CPUUsage.TotalUsage - stats.PreCPUStats.CPUUsage.TotalUsage)
 	systemDelta := float64(stats.CPUStats.SystemUsage - stats.PreCPUStats.SystemUsage)
@@ -260,7 +304,7 @@ func memoryLimit(inspect container.InspectResponse, stats container.StatsRespons
 
 func cpuLabel(value float64, limit *float64) string {
 	if limit != nil && *limit > 0 {
-		return fmt.Sprintf("%.0f%% of %g cores", (value / *limit) * 100, *limit)
+		return fmt.Sprintf("%.0f%% of %g cores", (value / *limit)*100, *limit)
 	}
 	return fmt.Sprintf("%.2f host cores", value)
 }
@@ -326,6 +370,204 @@ func valueOrDefault(value *float64) float64 {
 		return 0
 	}
 	return *value
+}
+
+func resourceSummaryForContainer(item container.Summary) domain.ResourceSummary {
+	name := firstNonEmptyContainerName(item.Names)
+	if name == "" {
+		name = shortDockerID(item.ID)
+	}
+
+	group := firstNonEmpty(
+		item.Labels["com.docker.compose.project"],
+		item.Labels["com.docker.stack.namespace"],
+	)
+
+	return domain.ResourceSummary{
+		Kind:  domain.ResourceKindContainer,
+		ID:    item.ID,
+		Name:  name,
+		Group: group,
+		Raw: map[string]any{
+			"labels": item.Labels,
+		},
+		Columns: map[string]string{
+			"Image":   item.Image,
+			"State":   item.State,
+			"Status":  item.Status,
+			"Ports":   formatContainerPorts(item.Ports),
+			"Created": formatUnixAge(item.Created),
+		},
+	}
+}
+
+func resourceSummaryForImage(item image.Summary) domain.ResourceSummary {
+	repository, tag := imageRepositoryAndTag(item)
+	name := repository
+	if name == "" || name == "<none>" {
+		name = shortDockerID(item.ID)
+	}
+
+	return domain.ResourceSummary{
+		Kind: domain.ResourceKindImage,
+		ID:   item.ID,
+		Name: name,
+		Columns: map[string]string{
+			"Repository": repository,
+			"Tag":        tag,
+			"Image ID":   shortDockerID(item.ID),
+			"Size":       formatBytes(float64(item.Size)),
+			"Created":    formatUnixAge(item.Created),
+		},
+	}
+}
+
+func resourceSummaryForVolume(item volume.Volume) domain.ResourceSummary {
+	return domain.ResourceSummary{
+		Kind: domain.ResourceKindVolume,
+		ID:   item.Name,
+		Name: item.Name,
+		Columns: map[string]string{
+			"Driver":     item.Driver,
+			"Scope":      item.Scope,
+			"Mountpoint": item.Mountpoint,
+			"Created":    formatTimestampAge(item.CreatedAt),
+		},
+	}
+}
+
+func resourceSummaryForNetwork(item network.Inspect) domain.ResourceSummary {
+	return domain.ResourceSummary{
+		Kind: domain.ResourceKindNetwork,
+		ID:   item.ID,
+		Name: item.Name,
+		Columns: map[string]string{
+			"Driver":     item.Driver,
+			"Scope":      item.Scope,
+			"Flags":      networkFlags(item),
+			"Containers": strconv.Itoa(len(item.Containers)),
+		},
+	}
+}
+
+func imageRepositoryAndTag(item image.Summary) (string, string) {
+	for _, repoTag := range item.RepoTags {
+		if repoTag == "" || repoTag == "<none>:<none>" {
+			continue
+		}
+
+		name, tag, ok := strings.Cut(repoTag, ":")
+		if !ok {
+			return repoTag, "-"
+		}
+		return name, tag
+	}
+
+	return "<none>", "<none>"
+}
+
+func firstNonEmptyContainerName(names []string) string {
+	for _, name := range names {
+		trimmed := strings.TrimPrefix(name, "/")
+		if trimmed != "" {
+			return trimmed
+		}
+	}
+
+	return ""
+}
+
+func shortDockerID(id string) string {
+	id = strings.TrimPrefix(id, "sha256:")
+	if len(id) <= 12 {
+		return id
+	}
+	return id[:12]
+}
+
+func formatUnixAge(timestamp int64) string {
+	if timestamp <= 0 {
+		return "-"
+	}
+	return formatAge(time.Unix(timestamp, 0))
+}
+
+func formatTimestampAge(timestamp string) string {
+	if timestamp == "" {
+		return "-"
+	}
+
+	parsed, err := time.Parse(time.RFC3339Nano, timestamp)
+	if err != nil {
+		return timestamp
+	}
+
+	return formatAge(parsed)
+}
+
+func formatAge(created time.Time) string {
+	if created.IsZero() {
+		return "-"
+	}
+
+	age := time.Since(created)
+	if age < time.Minute {
+		return "Just now"
+	}
+	if age < time.Hour {
+		return fmt.Sprintf("%dm ago", int(age.Minutes()))
+	}
+	if age < 24*time.Hour {
+		return fmt.Sprintf("%dh ago", int(age.Hours()))
+	}
+
+	return fmt.Sprintf("%dd ago", int(age.Hours()/24))
+}
+
+func formatContainerPorts(ports []container.Port) string {
+	if len(ports) == 0 {
+		return "-"
+	}
+
+	formatted := make([]string, 0, len(ports))
+	for _, port := range ports {
+		switch {
+		case port.PublicPort > 0 && port.PrivatePort > 0:
+			formatted = append(formatted, fmt.Sprintf("%d:%d/%s", port.PublicPort, port.PrivatePort, port.Type))
+		case port.PrivatePort > 0:
+			formatted = append(formatted, fmt.Sprintf("%d/%s", port.PrivatePort, port.Type))
+		}
+	}
+
+	if len(formatted) == 0 {
+		return "-"
+	}
+
+	return strings.Join(formatted, ", ")
+}
+
+func networkFlags(item network.Inspect) string {
+	flags := make([]string, 0, 2)
+	if item.Internal {
+		flags = append(flags, "internal")
+	}
+	if item.Ingress {
+		flags = append(flags, "ingress")
+	}
+	if len(flags) == 0 {
+		return "-"
+	}
+	return strings.Join(flags, ",")
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, value := range values {
+		if value != "" {
+			return value
+		}
+	}
+
+	return ""
 }
 
 func (c *Client) shellExists(containerID string, shell string) (bool, error) {

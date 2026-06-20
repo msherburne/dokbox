@@ -20,6 +20,24 @@ func main() {
 		ConnectionChecker: docker.NewStatusChecker(cfg.DockerHost),
 	}
 
+	client, err := docker.NewClient(cfg.DockerHost)
+	if err == nil {
+		defer client.Close()
+
+		service := docker.NewService(client)
+		deps.ConnectionChecker = service
+		deps.ActionRunner = service
+		deps.LogProvider = service
+		deps.MetricsProvider = service
+		deps.ShellProvider = service
+		deps.FileProvider = service
+
+		resources, loadErr := service.ListResourceSummaries()
+		if loadErr == nil {
+			deps.InitialContainers = resources
+		}
+	}
+
 	program := tea.NewProgram(
 		app.NewModel(deps),
 		tea.WithAltScreen(),

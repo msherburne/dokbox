@@ -17,6 +17,7 @@ type pingClientStub struct {
 	metrics   []domain.MetricSample
 	session   *domain.ExecSession
 	files     []domain.FileEntry
+	resources []domain.ResourceSummary
 }
 
 func (c *pingClientStub) Ping(context.Context) error {
@@ -59,6 +60,10 @@ func (c *pingClientStub) OpenShell(string) (*domain.ExecSession, error) {
 
 func (c *pingClientStub) ListContainerPath(string, string) ([]domain.FileEntry, error) {
 	return c.files, nil
+}
+
+func (c *pingClientStub) ListResourceSummaries() ([]domain.ResourceSummary, error) {
+	return c.resources, nil
 }
 
 func TestCheckConnectionReturnsConnectedAfterPing(t *testing.T) {
@@ -183,5 +188,32 @@ func TestListContainerPathDelegatesToClient(t *testing.T) {
 
 	if len(files) != 1 || files[0].Name != "etc" {
 		t.Fatalf("unexpected files: %#v", files)
+	}
+}
+
+func TestListResourceSummariesDelegatesToClient(t *testing.T) {
+	client := &pingClientStub{
+		resources: []domain.ResourceSummary{
+			{Kind: domain.ResourceKindContainer, ID: "container-1", Name: "api"},
+			{Kind: domain.ResourceKindImage, ID: "image-1", Name: "dokbox"},
+		},
+	}
+	service := docker.NewService(client)
+
+	resources, err := service.ListResourceSummaries()
+	if err != nil {
+		t.Fatalf("expected resource loading to succeed, got %v", err)
+	}
+
+	if len(resources) != 2 {
+		t.Fatalf("expected two resources, got %#v", resources)
+	}
+
+	if resources[0].Kind != domain.ResourceKindContainer || resources[0].Name != "api" {
+		t.Fatalf("unexpected first resource: %#v", resources[0])
+	}
+
+	if resources[1].Kind != domain.ResourceKindImage || resources[1].Name != "dokbox" {
+		t.Fatalf("unexpected second resource: %#v", resources[1])
 	}
 }
