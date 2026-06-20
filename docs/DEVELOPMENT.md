@@ -93,9 +93,73 @@ DOCKER_HOST=tcp://127.0.0.1:2375 go run .
 
 ## Create binaries locally
 
-### Linux and macOS
+### Linux standalone archive
 
-Build a local binary into `dist/`:
+Build the Linux payload directory and `.tar.gz` archive:
+
+```bash
+./packaging/build-linux.sh
+```
+
+This writes:
+
+- `dist/dokbox-linux-x86_64/`
+- `dist/dokbox-linux-x86_64.tar.gz`
+
+Run the standalone binary directly:
+
+```bash
+./dist/dokbox-linux-x86_64/bin/dokbox
+```
+
+### Debian package
+
+Install the Debian packaging tool, then build:
+
+```bash
+sudo apt-get install dpkg-dev
+./packaging/build-deb.sh
+```
+
+Install the resulting package system-wide:
+
+```bash
+sudo apt install ./dist/dokbox_*.deb
+```
+
+### RPM package
+
+Install the RPM tooling for your distro, then build:
+
+```bash
+sudo dnf install rpm-build
+./packaging/build-rpm.sh
+```
+
+Install the resulting package system-wide:
+
+```bash
+sudo dnf install ./dist/dokbox-*.rpm
+```
+
+### Pacman package
+
+Install Arch packaging tools, then build:
+
+```bash
+sudo pacman -S --needed base-devel
+./packaging/build-pacman.sh
+```
+
+Install the resulting package system-wide:
+
+```bash
+sudo pacman -U ./dist/dokbox-*.pkg.tar.zst
+```
+
+### Raw local binary
+
+If you only want a fast local binary without packaging:
 
 ```bash
 mkdir -p dist
@@ -106,21 +170,6 @@ Run it:
 
 ```bash
 ./dist/dokbox
-```
-
-### Windows
-
-Build a local binary into `dist/`:
-
-```powershell
-New-Item -ItemType Directory -Force dist | Out-Null
-go build -o dist/dokbox.exe .
-```
-
-Run it:
-
-```powershell
-.\dist\dokbox.exe
 ```
 
 ## Useful development commands
@@ -145,10 +194,11 @@ gofmt -w .
 
 ## Current packaging status
 
-The current locally supported binary path is `go build`.
+The supported Linux packaging flow now lives in the repository root under
+`packaging/`.
 
-The older standalone packaging helpers in `python/packaging/` are legacy
-Python-era tooling and are not the primary development path for the Go rewrite.
+The older helpers in `python/packaging/` are legacy Python-era tooling kept
+only as rewrite reference material.
 
 ## Troubleshooting
 
