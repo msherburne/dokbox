@@ -347,3 +347,62 @@ func (s *stubActionRunner) RemoveResource(domain.ResourceKind, string) error {
 func (s *stubActionRunner) Prune(domain.ResourceKind) error {
 	return nil
 }
+
+func TestNewModelOpensContainerDetailAndShowsLogs(t *testing.T) {
+	model := app.NewModel(app.Dependencies{
+		LogProvider: &stubLogProvider{
+			lines: []domain.LogLine{
+				{Text: "booting"},
+				{Text: "ready"},
+			},
+		},
+		InitialContainers: []domain.ResourceSummary{
+			{
+				Kind: domain.ResourceKindContainer,
+				ID:   "container-1",
+				Name: "api",
+				Columns: map[string]string{
+					"Image":  "nginx:latest",
+					"State":  "Running",
+					"Status": "Up 2 hours",
+				},
+			},
+		},
+	})
+
+	startupMsg := model.Init()()
+	nextModel, _ := model.Update(startupMsg)
+	nextModel, _ = nextModel.Update(keyMsg("enter"))
+	nextModel, cmd := nextModel.Update(keyMsg("enter"))
+	if cmd == nil {
+		t.Fatal("expected opening detail view command")
+	}
+
+	detailRequest := cmd()
+	nextModel, cmd = nextModel.Update(detailRequest)
+	if cmd == nil {
+		t.Fatal("expected detail request to schedule log loading")
+	}
+
+	logsMsg := cmd()
+	nextModel, _ = nextModel.Update(logsMsg)
+
+	nextModel, _ = nextModel.Update(tea.KeyMsg{Type: tea.KeyRight})
+	view := nextModel.View()
+	if !strings.Contains(view, "[Logs]") {
+		t.Fatalf("expected logs tab to become active, got %q", view)
+	}
+	if !strings.Contains(view, "booting") || !strings.Contains(view, "ready") {
+		t.Fatalf("expected log lines in detail view, got %q", view)
+	}
+}
+
+type stubLogProvider struct {
+	lines       []domain.LogLine
+	containerID string
+}
+
+func (s *stubLogProvider) ContainerLogs(containerID string, tail int) ([]domain.LogLine, error) {
+	s.containerID = containerID
+	return s.lines, nil
+}

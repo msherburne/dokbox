@@ -9,6 +9,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/msherburne/dokbox/internal/domain"
 	"github.com/msherburne/dokbox/internal/ui/browser"
+	"github.com/msherburne/dokbox/internal/ui/containerdetail"
 )
 
 type ConnectionChecker interface {
@@ -23,9 +24,14 @@ type ActionRunner interface {
 	Prune(kind domain.ResourceKind) error
 }
 
+type LogProvider interface {
+	ContainerLogs(containerID string, tail int) ([]domain.LogLine, error)
+}
+
 type Dependencies struct {
 	ConnectionChecker ConnectionChecker
 	ActionRunner      ActionRunner
+	LogProvider       LogProvider
 	InitialContainers []domain.ResourceSummary
 }
 
@@ -41,6 +47,12 @@ type actionResultMsg struct {
 	status string
 }
 
+type detailLogsLoadedMsg struct {
+	containerName string
+	logs          []domain.LogLine
+	err           error
+}
+
 const connectionCheckTimeout = 2 * time.Second
 
 type Model struct {
@@ -49,6 +61,7 @@ type Model struct {
 	lastActionStatus string
 	deps             Dependencies
 	browser          *browser.Model
+	detail          *containerdetail.Model
 }
 
 func NewModel(deps Dependencies) *Model {
@@ -89,10 +102,28 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		return m, m.runActionCmd(msg)
+	case browser.OpenContainerDetailRequest:
+		return m, m.loadDetailLogsCmd(msg)
 	case actionResultMsg:
 		m.lastActionStatus = msg.status
 		return m, nil
+	case detailLogsLoadedMsg:
+		m.detail = containerdetail.NewModel(msg.containerName, msg.logs)
+		return m, nil
 	case tea.KeyMsg:
+		if m.detail != nil {
+			if msg.String() == QuitKey {
+				m.detail = nil
+				return m, nil
+			}
+
+			nextDetail, cmd := m.detail.Update(msg)
+			if next, ok := nextDetail.(*containerdetail.Model); ok {
+				m.detail = next
+			}
+			return m, cmd
+		}
+
 		switch msg.String() {
 		case "ctrl+c":
 			return m, tea.Quit
@@ -140,6 +171,11 @@ func (m *Model) View() string {
 		}
 	}
 
+	if m.detail != nil {
+		lines = append(lines, "", m.detail.View())
+		return ShellStyle.Render(strings.Join(lines, "\n"))
+	}
+
 	if m.browser != nil {
 		lines = append(lines, "", m.browser.View())
 	}
@@ -175,5 +211,20 @@ func (m *Model) runActionCmd(request browser.ActionRequest) tea.Cmd {
 		}
 
 		return actionResultMsg{status: request.Action + " " + request.ResourceName}
+	}
+}
+
+func (m *Model) loadDetailLogsCmd(request browser.OpenContainerDetailRequest) tea.Cmd {
+	return func() tea.Msg {
+		if m.deps.LogProvider == nil {
+			return detailLogsLoadedMsg{containerName: request.ResourceName}
+		}
+
+		logs, err := m.deps.LogProvider.ContainerLogs(request.ResourceID, 200)
+		return detailLogsLoadedMsg{
+			containerName: request.ResourceName,
+			logs:          logs,
+			err:           err,
+		}
 	}
 }

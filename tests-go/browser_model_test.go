@@ -170,6 +170,30 @@ func TestBrowserModelOpensContainerActionsMenu(t *testing.T) {
 	}
 }
 
+func TestBrowserModelOpensSelectedContainerDetail(t *testing.T) {
+	model := browser.NewModel([]domain.ResourceSummary{
+		containerSummary("1", "api", "Running", "Up 2 hours", "compose"),
+	})
+
+	nextModel, _ := model.Update(browserKeyMsg("enter"))
+	browserModel := nextModel.(*browser.Model)
+
+	nextModel, cmd := browserModel.Update(browserKeyMsg("enter"))
+	if cmd == nil {
+		t.Fatal("expected enter on focused container to request detail open")
+	}
+
+	msg := cmd()
+	request, ok := msg.(browser.OpenContainerDetailRequest)
+	if !ok {
+		t.Fatalf("expected open detail request, got %T", msg)
+	}
+
+	if request.ResourceID != "1" || request.ResourceName != "api" {
+		t.Fatalf("unexpected detail request payload: %#v", request)
+	}
+}
+
 func browserKeyMsg(key string) tea.KeyMsg {
 	return tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(key)}
 }

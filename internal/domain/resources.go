@@ -14,6 +14,10 @@ type ConnectionStatus struct {
 	Message string
 }
 
+type LogLine struct {
+	Text string
+}
+
 type ResourceSummary struct {
 	Kind    ResourceKind
 	ID      string

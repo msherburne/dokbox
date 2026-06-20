@@ -3,8 +3,11 @@ package docker
 import (
 	"context"
 	"fmt"
+	"io"
 	"os"
 	"runtime"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/docker/docker/api/types/container"
@@ -104,6 +107,40 @@ func (c *Client) Prune(kind domain.ResourceKind) error {
 	default:
 		return fmt.Errorf("unsupported prune kind: %s", kind)
 	}
+}
+
+func (c *Client) ContainerLogs(containerID string, tail int) ([]domain.LogLine, error) {
+	reader, err := c.api.ContainerLogs(
+		context.Background(),
+		containerID,
+		container.LogsOptions{
+			ShowStdout: true,
+			ShowStderr: true,
+			Tail:       strconv.Itoa(tail),
+		},
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer reader.Close()
+
+	payload, err := io.ReadAll(reader)
+	if err != nil {
+		return nil, err
+	}
+
+	text := strings.TrimSpace(string(payload))
+	if text == "" {
+		return nil, nil
+	}
+
+	rawLines := strings.Split(text, "\n")
+	lines := make([]domain.LogLine, 0, len(rawLines))
+	for _, line := range rawLines {
+		lines = append(lines, domain.LogLine{Text: strings.TrimRight(line, "\r")})
+	}
+
+	return lines, nil
 }
 
 func (c *Client) Close() error {

@@ -30,6 +30,11 @@ type ActionRequest struct {
 	Kind         domain.ResourceKind
 }
 
+type OpenContainerDetailRequest struct {
+	ResourceID   string
+	ResourceName string
+}
+
 func NewModel(resources []domain.ResourceSummary) *Model {
 	tables := map[domain.ResourceKind]*tableModel{}
 	for _, kind := range []domain.ResourceKind{
@@ -107,6 +112,18 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case focusTable:
 		table := m.currentTable()
 		switch keyMsg.String() {
+		case "enter":
+			if m.currentTabKind() == string(domain.ResourceKindContainer) {
+				selected := table.Selected()
+				if selected != nil {
+					return m, func() tea.Msg {
+						return OpenContainerDetailRequest{
+							ResourceID:   selected.ID,
+							ResourceName: selected.Name,
+						}
+					}
+				}
+			}
 		case "up":
 			table.MoveUp()
 		case "down":

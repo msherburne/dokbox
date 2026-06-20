@@ -13,6 +13,7 @@ type pingClientStub struct {
 	err       error
 	pingCalls int
 	startedID string
+	logLines  []domain.LogLine
 }
 
 func (c *pingClientStub) Ping(context.Context) error {
@@ -39,6 +40,10 @@ func (c *pingClientStub) RemoveResource(domain.ResourceKind, string) error {
 
 func (c *pingClientStub) Prune(domain.ResourceKind) error {
 	return nil
+}
+
+func (c *pingClientStub) ContainerLogs(string, int) ([]domain.LogLine, error) {
+	return c.logLines, nil
 }
 
 func TestCheckConnectionReturnsConnectedAfterPing(t *testing.T) {
@@ -99,5 +104,21 @@ func TestStartContainerDelegatesToClient(t *testing.T) {
 
 	if client.startedID != "container-1" {
 		t.Fatalf("expected container start delegation, got %q", client.startedID)
+	}
+}
+
+func TestContainerLogsDelegatesToClient(t *testing.T) {
+	client := &pingClientStub{
+		logLines: []domain.LogLine{{Text: "booting"}, {Text: "ready"}},
+	}
+	service := docker.NewService(client)
+
+	lines, err := service.ContainerLogs("container-1", 200)
+	if err != nil {
+		t.Fatalf("expected logs to succeed, got %v", err)
+	}
+
+	if len(lines) != 2 || lines[0].Text != "booting" || lines[1].Text != "ready" {
+		t.Fatalf("unexpected log lines: %#v", lines)
 	}
 }
