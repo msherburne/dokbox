@@ -10,7 +10,9 @@ import (
 )
 
 func TestContainerDetailDefaultsToOverviewAndCanShowLogs(t *testing.T) {
-	model := containerdetail.NewModel("api", []domain.LogLine{
+	model := containerdetail.NewModel("api", []domain.MetricSample{
+		{Name: "CPU", Label: "25% of 4 cores"},
+	}, []domain.LogLine{
 		{Text: "booting"},
 		{Text: "ready"},
 	})
@@ -19,7 +21,7 @@ func TestContainerDetailDefaultsToOverviewAndCanShowLogs(t *testing.T) {
 	if !strings.Contains(initialView, "[Overview]") {
 		t.Fatalf("expected overview tab active, got %q", initialView)
 	}
-	if !strings.Contains(initialView, "Container detail overview.") {
+	if !strings.Contains(initialView, "CPU: 25% of 4 cores") {
 		t.Fatalf("expected overview content, got %q", initialView)
 	}
 
@@ -39,7 +41,7 @@ func TestContainerDetailDefaultsToOverviewAndCanShowLogs(t *testing.T) {
 }
 
 func TestContainerDetailShowsNoLogsState(t *testing.T) {
-	model := containerdetail.NewModel("api", nil)
+	model := containerdetail.NewModel("api", nil, nil)
 	nextModel, _ := model.Update(tea.KeyMsg{Type: tea.KeyRight})
 
 	logsView := nextModel.View()

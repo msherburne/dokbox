@@ -14,6 +14,7 @@ type ActionClient interface {
 	RemoveResource(kind domain.ResourceKind, resourceID string) error
 	Prune(kind domain.ResourceKind) error
 	ContainerLogs(containerID string, tail int) ([]domain.LogLine, error)
+	ContainerMetrics(containerID string) ([]domain.MetricSample, error)
 }
 
 type Service struct {
@@ -60,4 +61,8 @@ func (s *Service) Prune(kind domain.ResourceKind) error {
 
 func (s *Service) ContainerLogs(containerID string, tail int) ([]domain.LogLine, error) {
 	return s.client.ContainerLogs(containerID, tail)
+}
+
+func (s *Service) ContainerMetrics(containerID string) ([]domain.MetricSample, error) {
+	return s.client.ContainerMetrics(containerID)
 }

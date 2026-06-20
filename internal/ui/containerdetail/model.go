@@ -13,14 +13,16 @@ type tab struct {
 
 type Model struct {
 	containerName string
+	metrics       []domain.MetricSample
 	logs          []domain.LogLine
 	tabs          []tab
 	activeTab     int
 }
 
-func NewModel(containerName string, logs []domain.LogLine) *Model {
+func NewModel(containerName string, metrics []domain.MetricSample, logs []domain.LogLine) *Model {
 	return &Model{
 		containerName: containerName,
+		metrics:       append([]domain.MetricSample(nil), metrics...),
 		logs:          append([]domain.LogLine(nil), logs...),
 		tabs: []tab{
 			{title: "Overview"},
@@ -84,7 +86,15 @@ func (m *Model) activeContent() string {
 	case "Files":
 		return "Files view coming soon."
 	default:
-		return "Container detail overview."
+		if len(m.metrics) == 0 {
+			return "No metrics."
+		}
+
+		lines := make([]string, 0, len(m.metrics))
+		for _, metric := range m.metrics {
+			lines = append(lines, metric.Name+": "+metric.Label)
+		}
+		return strings.Join(lines, "\n")
 	}
 }
 

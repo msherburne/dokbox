@@ -28,10 +28,15 @@ type LogProvider interface {
 	ContainerLogs(containerID string, tail int) ([]domain.LogLine, error)
 }
 
+type MetricsProvider interface {
+	ContainerMetrics(containerID string) ([]domain.MetricSample, error)
+}
+
 type Dependencies struct {
 	ConnectionChecker ConnectionChecker
 	ActionRunner      ActionRunner
 	LogProvider       LogProvider
+	MetricsProvider   MetricsProvider
 	InitialContainers []domain.ResourceSummary
 }
 
@@ -49,6 +54,7 @@ type actionResultMsg struct {
 
 type detailLogsLoadedMsg struct {
 	containerName string
+	metrics       []domain.MetricSample
 	logs          []domain.LogLine
 	err           error
 }
@@ -108,7 +114,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.lastActionStatus = msg.status
 		return m, nil
 	case detailLogsLoadedMsg:
-		m.detail = containerdetail.NewModel(msg.containerName, msg.logs)
+		m.detail = containerdetail.NewModel(msg.containerName, msg.metrics, msg.logs)
 		return m, nil
 	case tea.KeyMsg:
 		if m.detail != nil {
@@ -221,8 +227,13 @@ func (m *Model) loadDetailLogsCmd(request browser.OpenContainerDetailRequest) te
 		}
 
 		logs, err := m.deps.LogProvider.ContainerLogs(request.ResourceID, 200)
+		var metrics []domain.MetricSample
+		if m.deps.MetricsProvider != nil {
+			metrics, _ = m.deps.MetricsProvider.ContainerMetrics(request.ResourceID)
+		}
 		return detailLogsLoadedMsg{
 			containerName: request.ResourceName,
+			metrics:       metrics,
 			logs:          logs,
 			err:           err,
 		}

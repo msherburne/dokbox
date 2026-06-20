@@ -356,6 +356,11 @@ func TestNewModelOpensContainerDetailAndShowsLogs(t *testing.T) {
 				{Text: "ready"},
 			},
 		},
+		MetricsProvider: &stubMetricsProvider{
+			metrics: []domain.MetricSample{
+				{Name: "CPU", Label: "25% of 4 cores"},
+			},
+		},
 		InitialContainers: []domain.ResourceSummary{
 			{
 				Kind: domain.ResourceKindContainer,
@@ -381,14 +386,19 @@ func TestNewModelOpensContainerDetailAndShowsLogs(t *testing.T) {
 	detailRequest := cmd()
 	nextModel, cmd = nextModel.Update(detailRequest)
 	if cmd == nil {
-		t.Fatal("expected detail request to schedule log loading")
+		t.Fatal("expected detail request to schedule detail loading")
 	}
 
-	logsMsg := cmd()
-	nextModel, _ = nextModel.Update(logsMsg)
+	detailLoadedMsg := cmd()
+	nextModel, _ = nextModel.Update(detailLoadedMsg)
+
+	view := nextModel.View()
+	if !strings.Contains(view, "CPU: 25% of 4 cores") {
+		t.Fatalf("expected overview metrics in detail view, got %q", view)
+	}
 
 	nextModel, _ = nextModel.Update(tea.KeyMsg{Type: tea.KeyRight})
-	view := nextModel.View()
+	view = nextModel.View()
 	if !strings.Contains(view, "[Logs]") {
 		t.Fatalf("expected logs tab to become active, got %q", view)
 	}
@@ -405,4 +415,14 @@ type stubLogProvider struct {
 func (s *stubLogProvider) ContainerLogs(containerID string, tail int) ([]domain.LogLine, error) {
 	s.containerID = containerID
 	return s.lines, nil
+}
+
+type stubMetricsProvider struct {
+	metrics      []domain.MetricSample
+	containerID  string
+}
+
+func (s *stubMetricsProvider) ContainerMetrics(containerID string) ([]domain.MetricSample, error) {
+	s.containerID = containerID
+	return s.metrics, nil
 }
