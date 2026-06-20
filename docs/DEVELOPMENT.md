@@ -112,6 +112,50 @@ Run the standalone binary directly:
 ./dist/dokbox-linux-x86_64/bin/dokbox
 ```
 
+### macOS standalone archive
+
+Build the macOS payload directory and `.tar.gz` archive:
+
+```bash
+./packaging/build-darwin.sh
+```
+
+This writes:
+
+- `dist/dokbox-darwin-<arch>/`
+- `dist/dokbox-darwin-<arch>.tar.gz`
+
+Run the standalone binary directly:
+
+```bash
+./dist/dokbox-darwin-arm64/bin/dokbox
+```
+
+To target Intel macOS locally:
+
+```bash
+GOARCH=amd64 ./packaging/build-darwin.sh
+```
+
+### Windows standalone archive
+
+Build the Windows payload directory and `.zip` archive:
+
+```bash
+./packaging/build-windows.sh
+```
+
+This writes:
+
+- `dist/dokbox-windows-<arch>/`
+- `dist/dokbox-windows-<arch>.zip`
+
+Run the standalone binary directly:
+
+```bash
+./dist/dokbox-windows-x86_64/bin/dokbox.exe
+```
+
 ### Debian package
 
 Install the Debian packaging tool, then build:
@@ -196,10 +240,62 @@ Format Go code:
 gofmt -w .
 ```
 
+Generate release metadata for cross-platform installers:
+
+```bash
+./packaging/release-manifest.sh
+./packaging/generate-homebrew-formula.sh
+./packaging/generate-winget-manifest.sh
+```
+
+These helpers expect `python3` plus a SHA-256 tool such as `sha256sum` or
+`shasum`.
+
+### Installer smoke checks
+
+Linux or macOS:
+
+```bash
+./install/install.sh --help
+```
+
+Release-style one-liner:
+
+```bash
+curl -fsSL https://github.com/msherburne/dokbox/releases/latest/download/install.sh | bash
+```
+
+Current Linux arm64 note:
+
+- Linux release artifacts are currently published for `amd64` only
+
+Windows PowerShell:
+
+```powershell
+./install/install.ps1 -Help
+```
+
+Release-style one-liner:
+
+```powershell
+irm https://github.com/msherburne/dokbox/releases/latest/download/install.ps1 | iex
+```
+
+Current Windows note:
+
+- Windows release artifacts are currently published for `amd64` only
+
 ## Current packaging status
 
 The supported Linux packaging flow now lives in the repository root under
 `packaging/`.
+
+Cross-platform release automation also lives there, including builders for:
+
+- Linux standalone plus native distro packages
+- macOS standalone archives
+- Windows standalone archives
+- Homebrew and winget release metadata generation
 
 The older helpers in `python/packaging/` are legacy Python-era tooling kept
 only as rewrite reference material.

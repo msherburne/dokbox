@@ -1,6 +1,7 @@
 package testsgo
 
 import (
+	"encoding/json"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -371,5 +372,382 @@ func TestBuildPacmanHelperFailsFastWhenBsdtarIsMissing(t *testing.T) {
 
 	if !strings.Contains(output, "Required tool missing: bsdtar") {
 		t.Fatalf("expected missing bsdtar error, got:\n%s", output)
+	}
+}
+
+func TestBuildDarwinHelperProducesStandaloneArchive(t *testing.T) {
+	root := t.TempDir()
+	packagingDir := filepath.Join(root, "packaging")
+	fakeBin := filepath.Join(root, "fake-bin")
+
+	copyFile(t, filepath.Join(projectRoot(t), "packaging", "common.sh"), filepath.Join(packagingDir, "common.sh"))
+	copyFile(t, filepath.Join(projectRoot(t), "packaging", "build-darwin.sh"), filepath.Join(packagingDir, "build-darwin.sh"))
+
+	writeExecutable(t, filepath.Join(fakeBin, "go"), `#!/usr/bin/env bash
+set -euo pipefail
+if [ "$1" = "env" ] && [ "$2" = "GOARCH" ]; then
+  printf 'arm64\n'
+  exit 0
+fi
+if [ "$1" = "build" ]; then
+  output=""
+  while [ "$#" -gt 0 ]; do
+    if [ "$1" = "-o" ]; then
+      output="$2"
+      shift 2
+      continue
+    fi
+    shift
+  done
+  mkdir -p "$(dirname "$output")"
+  printf '#!/usr/bin/env bash\necho dokbox-darwin\n' >"$output"
+  chmod +x "$output"
+  exit 0
+fi
+printf 'unexpected go invocation: %s\n' "$*" >&2
+exit 1
+`)
+
+	runScript(t, root, filepath.Join("packaging", "build-darwin.sh"), fakeBin)
+
+	if _, err := os.Stat(filepath.Join(root, "dist", "dokbox-darwin-arm64", "bin", "dokbox")); err != nil {
+		t.Fatalf("expected darwin standalone binary: %v", err)
+	}
+
+	if _, err := os.Stat(filepath.Join(root, "dist", "dokbox-darwin-arm64.tar.gz")); err != nil {
+		t.Fatalf("expected darwin standalone archive: %v", err)
+	}
+}
+
+func TestBuildWindowsHelperProducesStandaloneZip(t *testing.T) {
+	root := t.TempDir()
+	packagingDir := filepath.Join(root, "packaging")
+	fakeBin := filepath.Join(root, "fake-bin")
+
+	copyFile(t, filepath.Join(projectRoot(t), "packaging", "common.sh"), filepath.Join(packagingDir, "common.sh"))
+	copyFile(t, filepath.Join(projectRoot(t), "packaging", "build-windows.sh"), filepath.Join(packagingDir, "build-windows.sh"))
+
+	writeExecutable(t, filepath.Join(fakeBin, "go"), `#!/usr/bin/env bash
+set -euo pipefail
+if [ "$1" = "env" ] && [ "$2" = "GOARCH" ]; then
+  printf 'amd64\n'
+  exit 0
+fi
+if [ "$1" = "build" ]; then
+  output=""
+  while [ "$#" -gt 0 ]; do
+    if [ "$1" = "-o" ]; then
+      output="$2"
+      shift 2
+      continue
+    fi
+    shift
+  done
+  mkdir -p "$(dirname "$output")"
+  printf 'windows-binary\n' >"$output"
+  exit 0
+fi
+printf 'unexpected go invocation: %s\n' "$*" >&2
+exit 1
+`)
+
+	writeExecutable(t, filepath.Join(fakeBin, "zip"), `#!/usr/bin/env bash
+set -euo pipefail
+archive=""
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    -*)
+      shift
+      ;;
+    *)
+      archive="$1"
+      break
+      ;;
+  esac
+done
+if [ -z "$archive" ]; then
+  printf 'missing archive path\n' >&2
+  exit 1
+fi
+touch "$archive"
+`)
+
+	runScript(t, root, filepath.Join("packaging", "build-windows.sh"), fakeBin)
+
+	if _, err := os.Stat(filepath.Join(root, "dist", "dokbox-windows-x86_64", "bin", "dokbox.exe")); err != nil {
+		t.Fatalf("expected windows standalone binary: %v", err)
+	}
+
+	if _, err := os.Stat(filepath.Join(root, "dist", "dokbox-windows-x86_64.zip")); err != nil {
+		t.Fatalf("expected windows standalone zip: %v", err)
+	}
+}
+
+func TestReleaseManifestIncludesStandaloneArtifacts(t *testing.T) {
+	root := t.TempDir()
+	packagingDir := filepath.Join(root, "packaging")
+	fakeBin := filepath.Join(root, "fake-bin")
+
+	copyFile(t, filepath.Join(projectRoot(t), "packaging", "common.sh"), filepath.Join(packagingDir, "common.sh"))
+	copyFile(t, filepath.Join(projectRoot(t), "packaging", "release-manifest.sh"), filepath.Join(packagingDir, "release-manifest.sh"))
+
+	writeExecutable(t, filepath.Join(root, "dist", "dokbox-linux-x86_64.tar.gz"), "linux")
+	writeExecutable(t, filepath.Join(root, "dist", "dokbox-darwin-arm64.tar.gz"), "darwin")
+	writeExecutable(t, filepath.Join(root, "dist", "dokbox-windows-x86_64.zip"), "windows")
+
+	writeExecutable(t, filepath.Join(fakeBin, "sha256sum"), `#!/usr/bin/env bash
+set -euo pipefail
+case "$(basename "$1")" in
+  dokbox-linux-x86_64.tar.gz) printf '1111  %s\n' "$1" ;;
+  dokbox-darwin-arm64.tar.gz) printf '2222  %s\n' "$1" ;;
+  dokbox-windows-x86_64.zip) printf '3333  %s\n' "$1" ;;
+  *) printf 'unexpected file: %s\n' "$1" >&2; exit 1 ;;
+esac
+`)
+
+	runScriptWithEnv(t, root, filepath.Join("packaging", "release-manifest.sh"), map[string]string{
+		"VERSION":          "1.2.3",
+		"RELEASE":          "1",
+		"RELEASE_BASE_URL": "https://example.com/downloads",
+	}, fakeBin)
+
+	manifestPath := filepath.Join(root, "dist", "release-manifest.json")
+	data, err := os.ReadFile(manifestPath)
+	if err != nil {
+		t.Fatalf("read manifest: %v", err)
+	}
+
+	var manifest struct {
+		Version   string `json:"version"`
+		Release   string `json:"release"`
+		Artifacts []struct {
+			GOOS     string `json:"goos"`
+			GOARCH   string `json:"goarch"`
+			Archive  string `json:"archive"`
+			SHA256   string `json:"sha256"`
+			URL      string `json:"url"`
+			Checksum string `json:"checksum"`
+		} `json:"artifacts"`
+	}
+	if err := json.Unmarshal(data, &manifest); err != nil {
+		t.Fatalf("unmarshal manifest: %v\n%s", err, data)
+	}
+
+	if manifest.Version != "1.2.3" || manifest.Release != "1" {
+		t.Fatalf("unexpected manifest header: %+v", manifest)
+	}
+
+	if len(manifest.Artifacts) != 3 {
+		t.Fatalf("expected 3 artifacts, got %d", len(manifest.Artifacts))
+	}
+
+	found := map[string]struct {
+		goos   string
+		goarch string
+		sha256 string
+		url    string
+	}{
+		"dokbox-linux-x86_64.tar.gz": {goos: "linux", goarch: "amd64", sha256: "1111", url: "https://example.com/downloads/dokbox-linux-x86_64.tar.gz"},
+		"dokbox-darwin-arm64.tar.gz": {goos: "darwin", goarch: "arm64", sha256: "2222", url: "https://example.com/downloads/dokbox-darwin-arm64.tar.gz"},
+		"dokbox-windows-x86_64.zip":  {goos: "windows", goarch: "amd64", sha256: "3333", url: "https://example.com/downloads/dokbox-windows-x86_64.zip"},
+	}
+
+	for _, artifact := range manifest.Artifacts {
+		expected, ok := found[artifact.Archive]
+		if !ok {
+			t.Fatalf("unexpected artifact in manifest: %+v", artifact)
+		}
+		if artifact.GOOS != expected.goos || artifact.GOARCH != expected.goarch || artifact.SHA256 != expected.sha256 || artifact.URL != expected.url {
+			t.Fatalf("unexpected artifact metadata for %s: %+v", artifact.Archive, artifact)
+		}
+		if artifact.Checksum != "sha256" {
+			t.Fatalf("expected sha256 checksum type, got %q", artifact.Checksum)
+		}
+		delete(found, artifact.Archive)
+	}
+
+	if len(found) != 0 {
+		t.Fatalf("missing artifacts from manifest: %+v", found)
+	}
+}
+
+func TestGenerateHomebrewFormulaConsumesManifest(t *testing.T) {
+	root := t.TempDir()
+	packagingDir := filepath.Join(root, "packaging")
+
+	copyFile(t, filepath.Join(projectRoot(t), "packaging", "common.sh"), filepath.Join(packagingDir, "common.sh"))
+	copyFile(t, filepath.Join(projectRoot(t), "packaging", "generate-homebrew-formula.sh"), filepath.Join(packagingDir, "generate-homebrew-formula.sh"))
+
+	if err := os.MkdirAll(filepath.Join(root, "dist"), 0o755); err != nil {
+		t.Fatalf("mkdir dist: %v", err)
+	}
+
+	manifest := `{
+  "package": "dokbox",
+  "version": "1.2.3",
+  "homepage": "https://github.com/msherburne/dokbox",
+  "description": "Terminal UI for Docker resource management",
+  "license": "Unspecified",
+  "artifacts": [
+    {
+      "goos": "darwin",
+      "goarch": "amd64",
+      "archive": "dokbox-darwin-x86_64.tar.gz",
+      "sha256": "intelsha",
+      "url": "https://example.com/dokbox-darwin-x86_64.tar.gz"
+    },
+    {
+      "goos": "darwin",
+      "goarch": "arm64",
+      "archive": "dokbox-darwin-arm64.tar.gz",
+      "sha256": "armsha",
+      "url": "https://example.com/dokbox-darwin-arm64.tar.gz"
+    }
+  ]
+}`
+	if err := os.WriteFile(filepath.Join(root, "dist", "release-manifest.json"), []byte(manifest), 0o644); err != nil {
+		t.Fatalf("write manifest: %v", err)
+	}
+
+	runScript(t, root, filepath.Join("packaging", "generate-homebrew-formula.sh"))
+
+	formulaPath := filepath.Join(root, "dist", "dokbox.rb")
+	data, err := os.ReadFile(formulaPath)
+	if err != nil {
+		t.Fatalf("read formula: %v", err)
+	}
+
+	text := string(data)
+	for _, snippet := range []string{
+		"class Dokbox < Formula",
+		`desc "Terminal UI for Docker resource management"`,
+		`homepage "https://github.com/msherburne/dokbox"`,
+		`version "1.2.3"`,
+		`on_macos do`,
+		`if Hardware::CPU.intel?`,
+		`url "https://example.com/dokbox-darwin-x86_64.tar.gz"`,
+		`sha256 "intelsha"`,
+		`url "https://example.com/dokbox-darwin-arm64.tar.gz"`,
+		`sha256 "armsha"`,
+		`bin.install "bin/dokbox"`,
+	} {
+		if !strings.Contains(text, snippet) {
+			t.Fatalf("expected formula to contain %q\n%s", snippet, text)
+		}
+	}
+}
+
+func TestGenerateHomebrewFormulaFailsWhenDarwinArtifactsMissing(t *testing.T) {
+	root := t.TempDir()
+	packagingDir := filepath.Join(root, "packaging")
+
+	copyFile(t, filepath.Join(projectRoot(t), "packaging", "common.sh"), filepath.Join(packagingDir, "common.sh"))
+	copyFile(t, filepath.Join(projectRoot(t), "packaging", "generate-homebrew-formula.sh"), filepath.Join(packagingDir, "generate-homebrew-formula.sh"))
+
+	if err := os.MkdirAll(filepath.Join(root, "dist"), 0o755); err != nil {
+		t.Fatalf("mkdir dist: %v", err)
+	}
+
+	if err := os.WriteFile(filepath.Join(root, "dist", "release-manifest.json"), []byte(`{"version":"1.2.3","artifacts":[]}`), 0o644); err != nil {
+		t.Fatalf("write manifest: %v", err)
+	}
+
+	output := runScriptExpectFailure(t, root, filepath.Join("packaging", "generate-homebrew-formula.sh"), map[string]string{
+		"VERSION": "1.2.3",
+		"RELEASE": "1",
+	})
+
+	if !strings.Contains(output, "missing required darwin artifacts") {
+		t.Fatalf("expected missing darwin artifact error, got:\n%s", output)
+	}
+}
+
+func TestGenerateWingetManifestConsumesManifest(t *testing.T) {
+	root := t.TempDir()
+	packagingDir := filepath.Join(root, "packaging")
+
+	copyFile(t, filepath.Join(projectRoot(t), "packaging", "common.sh"), filepath.Join(packagingDir, "common.sh"))
+	copyFile(t, filepath.Join(projectRoot(t), "packaging", "generate-winget-manifest.sh"), filepath.Join(packagingDir, "generate-winget-manifest.sh"))
+
+	if err := os.MkdirAll(filepath.Join(root, "dist"), 0o755); err != nil {
+		t.Fatalf("mkdir dist: %v", err)
+	}
+
+	manifest := `{
+  "package": "dokbox",
+  "version": "1.2.3",
+  "publisher": "dokbox maintainers",
+  "homepage": "https://github.com/msherburne/dokbox",
+  "license": "Unspecified",
+  "description": "Dokbox is a Bubble Tea terminal application for browsing and managing Docker resources.",
+  "artifacts": [
+    {
+      "goos": "windows",
+      "goarch": "amd64",
+      "archive": "dokbox-windows-x86_64.zip",
+      "sha256": "winintel",
+      "url": "https://example.com/dokbox-windows-x86_64.zip"
+    }
+  ]
+}`
+	if err := os.WriteFile(filepath.Join(root, "dist", "release-manifest.json"), []byte(manifest), 0o644); err != nil {
+		t.Fatalf("write manifest: %v", err)
+	}
+
+	runScript(t, root, filepath.Join("packaging", "generate-winget-manifest.sh"))
+
+	for _, file := range []string{
+		filepath.Join(root, "dist", "winget", "dokbox.installer.yaml"),
+		filepath.Join(root, "dist", "winget", "dokbox.locale.en-US.yaml"),
+		filepath.Join(root, "dist", "winget", "dokbox.yaml"),
+	} {
+		if _, err := os.Stat(file); err != nil {
+			t.Fatalf("expected winget file %s: %v", file, err)
+		}
+	}
+
+	installer, err := os.ReadFile(filepath.Join(root, "dist", "winget", "dokbox.installer.yaml"))
+	if err != nil {
+		t.Fatalf("read installer manifest: %v", err)
+	}
+
+	for _, snippet := range []string{
+		`PackageIdentifier: dokbox.dokbox`,
+		`PackageVersion: 1.2.3`,
+		`InstallerUrl: https://example.com/dokbox-windows-x86_64.zip`,
+		`InstallerSha256: winintel`,
+		`Architecture: x64`,
+		`NestedInstallerType: portable`,
+		`NestedInstallerFiles:`,
+		`RelativeFilePath: bin/dokbox.exe`,
+	} {
+		if !strings.Contains(string(installer), snippet) {
+			t.Fatalf("expected installer manifest to contain %q\n%s", snippet, installer)
+		}
+	}
+}
+
+func TestGenerateWingetManifestFailsWhenWindowsArtifactsMissing(t *testing.T) {
+	root := t.TempDir()
+	packagingDir := filepath.Join(root, "packaging")
+
+	copyFile(t, filepath.Join(projectRoot(t), "packaging", "common.sh"), filepath.Join(packagingDir, "common.sh"))
+	copyFile(t, filepath.Join(projectRoot(t), "packaging", "generate-winget-manifest.sh"), filepath.Join(packagingDir, "generate-winget-manifest.sh"))
+
+	if err := os.MkdirAll(filepath.Join(root, "dist"), 0o755); err != nil {
+		t.Fatalf("mkdir dist: %v", err)
+	}
+
+	if err := os.WriteFile(filepath.Join(root, "dist", "release-manifest.json"), []byte(`{"version":"1.2.3","artifacts":[]}`), 0o644); err != nil {
+		t.Fatalf("write manifest: %v", err)
+	}
+
+	output := runScriptExpectFailure(t, root, filepath.Join("packaging", "generate-winget-manifest.sh"), map[string]string{
+		"VERSION": "1.2.3",
+		"RELEASE": "1",
+	})
+
+	if !strings.Contains(output, "missing required windows artifacts") {
+		t.Fatalf("expected missing windows artifact error, got:\n%s", output)
 	}
 }

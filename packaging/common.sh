@@ -10,6 +10,7 @@ PACKAGE_DESCRIPTION="Dokbox is a Bubble Tea terminal application for browsing an
 PACKAGE_LICENSE="Unspecified"
 PACKAGE_URL="https://github.com/msherburne/dokbox"
 PACKAGE_MAINTAINER="dokbox maintainers"
+PACKAGE_IDENTIFIER="dokbox.dokbox"
 
 require_tool() {
   if ! command -v "$1" >/dev/null 2>&1; then
@@ -111,6 +112,54 @@ map_archive_arch() {
   esac
 }
 
+archive_extension_for() {
+  case "$1" in
+    linux|darwin) printf 'tar.gz\n' ;;
+    windows) printf 'zip\n' ;;
+    *)
+      printf 'Unsupported target OS: %s\n' "$1" >&2
+      exit 1
+      ;;
+  esac
+}
+
+binary_name_for() {
+  case "$1" in
+    windows) printf '%s.exe\n' "$PACKAGE_NAME" ;;
+    linux|darwin) printf '%s\n' "$PACKAGE_NAME" ;;
+    *)
+      printf 'Unsupported target OS: %s\n' "$1" >&2
+      exit 1
+      ;;
+  esac
+}
+
+archive_root_for() {
+  printf '%s-%s-%s\n' "$PACKAGE_NAME" "$1" "$2"
+}
+
+archive_name_for() {
+  local goos="$1"
+  local archive_arch="$2"
+  printf '%s.%s\n' "$(archive_root_for "$goos" "$archive_arch")" "$(archive_extension_for "$goos")"
+}
+
+binary_path_for() {
+  printf 'bin/%s\n' "$(binary_name_for "$1")"
+}
+
+standalone_dir_for() {
+  printf '%s/%s\n' "$DIST_DIR" "$(archive_root_for "$1" "$2")"
+}
+
+standalone_archive_for() {
+  printf '%s/%s\n' "$DIST_DIR" "$(archive_name_for "$1" "$2")"
+}
+
+standalone_bin_for() {
+  printf '%s/%s\n' "$(standalone_dir_for "$1" "$2")" "$(binary_path_for "$1")"
+}
+
 map_deb_arch() {
   case "$1" in
     x86_64) printf 'amd64\n' ;;
@@ -133,15 +182,66 @@ map_rpm_arch() {
   esac
 }
 
+map_homebrew_arch() {
+  case "$1" in
+    amd64) printf 'intel\n' ;;
+    arm64) printf 'arm\n' ;;
+    *)
+      printf 'Unsupported Homebrew architecture: %s\n' "$1" >&2
+      exit 1
+      ;;
+  esac
+}
+
+map_winget_arch() {
+  case "$1" in
+    amd64) printf 'x64\n' ;;
+    arm64) printf 'arm64\n' ;;
+    *)
+      printf 'Unsupported winget architecture: %s\n' "$1" >&2
+      exit 1
+      ;;
+  esac
+}
+
+resolve_release_base_url() {
+  if [ -n "${RELEASE_BASE_URL:-}" ]; then
+    printf '%s\n' "${RELEASE_BASE_URL%/}"
+    return
+  fi
+
+  printf '%s/releases/download/v%s\n' "$PACKAGE_URL" "$RAW_VERSION"
+}
+
+sha256_file() {
+  if command -v sha256sum >/dev/null 2>&1; then
+    sha256sum "$1" | awk '{print $1}'
+    return
+  fi
+
+  if command -v shasum >/dev/null 2>&1; then
+    shasum -a 256 "$1" | awk '{print $1}'
+    return
+  fi
+
+  if command -v openssl >/dev/null 2>&1; then
+    openssl dgst -sha256 "$1" | awk '{print $NF}'
+    return
+  fi
+
+  printf 'Required tool missing: sha256 checksum utility\n' >&2
+  exit 1
+}
+
 RAW_VERSION="$(resolve_version)"
 PACKAGE_VERSION="$(sanitize_package_version "$RAW_VERSION")"
 PACKAGE_RELEASE="${RELEASE:-1}"
 GO_ARCH="$(resolve_go_arch)"
 ARCHIVE_ARCH="$(map_archive_arch "$GO_ARCH")"
-ARCHIVE_ROOT="$PACKAGE_NAME-linux-$ARCHIVE_ARCH"
-STANDALONE_DIR="$DIST_DIR/$ARCHIVE_ROOT"
-STANDALONE_ARCHIVE="$DIST_DIR/$ARCHIVE_ROOT.tar.gz"
-STANDALONE_BIN="$STANDALONE_DIR/bin/$PACKAGE_NAME"
+ARCHIVE_ROOT="$(archive_root_for linux "$ARCHIVE_ARCH")"
+STANDALONE_DIR="$(standalone_dir_for linux "$ARCHIVE_ARCH")"
+STANDALONE_ARCHIVE="$(standalone_archive_for linux "$ARCHIVE_ARCH")"
+STANDALONE_BIN="$(standalone_bin_for linux "$ARCHIVE_ARCH")"
 BIN_PATH="/usr/bin/$PACKAGE_NAME"
 
 ensure_standalone_payload() {
