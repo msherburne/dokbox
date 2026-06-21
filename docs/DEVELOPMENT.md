@@ -75,6 +75,20 @@ What happens on startup:
 3. Dokbox starts the Bubble Tea shell.
 4. Dokbox checks Docker connectivity and shows the current status in the UI.
 
+### Built-in theme config
+
+Use the top-level `theme` field in `~/.dokbox.json` to select a built-in TUI
+theme:
+
+```json
+{
+  "theme": "slate"
+}
+```
+
+Supported values: `default`, `slate`, `ember`.
+Unknown values fall back to `default`.
+
 ### Docker environment variables
 
 The Go Docker bootstrap respects standard Docker environment configuration,

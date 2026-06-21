@@ -159,8 +159,9 @@ func decodeConfig(raw map[string]any) (*domain.Config, error) {
 		return nil, err
 	}
 
-	_, resolvedThemeName := theme.Resolve(cfg.Theme)
-	cfg.Theme = resolvedThemeName
+	if cfg.Theme == "" {
+		cfg.Theme = theme.DefaultPreset
+	}
 
 	return &cfg, nil
 }

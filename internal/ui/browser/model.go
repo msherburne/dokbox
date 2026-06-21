@@ -16,11 +16,19 @@ const (
 )
 
 type Model struct {
-	tabs      []tab
-	activeTab int
-	focus     focusTarget
-	tables    map[domain.ResourceKind]*tableModel
-	actionsOpen bool
+	tabs                []tab
+	activeTab           int
+	focus               focusTarget
+	tables              map[domain.ResourceKind]*tableModel
+	actionsOpen         bool
+	confirmationPending *pendingConfirmation
+}
+
+type pendingConfirmation struct {
+	action       string
+	resourceID   string
+	resourceName string
+	kind         domain.ResourceKind
 }
 
 type ActionRequest struct {
@@ -63,7 +71,6 @@ func (m *Model) Init() tea.Cmd {
 	return nil
 }
 
-
 func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	keyMsg, ok := msg.(tea.KeyMsg)
 	if !ok {
@@ -77,19 +84,55 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		case "s", "t", "r", "x", "p":
 			selected := m.currentTable().Selected()
-			m.actionsOpen = false
 			if selected == nil {
 				return m, nil
 			}
 
+			action := actionNameForKey(keyMsg.String())
+			if action == "remove" || action == "prune" {
+				m.actionsOpen = false
+				m.confirmationPending = &pendingConfirmation{
+					action:       action,
+					resourceID:   selected.ID,
+					resourceName: selected.Name,
+					kind:         selected.Kind,
+				}
+				return m, nil
+			}
+
+			m.actionsOpen = false
+
 			return m, func() tea.Msg {
 				return ActionRequest{
-					Action:       actionNameForKey(keyMsg.String()),
+					Action:       action,
 					ResourceID:   selected.ID,
 					ResourceName: selected.Name,
 					Kind:         selected.Kind,
 				}
 			}
+		default:
+			return m, nil
+		}
+	}
+
+	if m.confirmationPending != nil {
+		switch keyMsg.String() {
+		case "y":
+			pending := *m.confirmationPending
+			m.confirmationPending = nil
+			m.actionsOpen = false
+			return m, func() tea.Msg {
+				return ActionRequest{
+					Action:       pending.action,
+					ResourceID:   pending.resourceID,
+					ResourceName: pending.resourceName,
+					Kind:         pending.kind,
+				}
+			}
+		case "n", "q", "esc":
+			m.confirmationPending = nil
+			m.actionsOpen = true
+			return m, nil
 		default:
 			return m, nil
 		}
@@ -151,6 +194,10 @@ func (m *Model) View() string {
 		lines = append(lines, "", m.renderActionsMenu())
 	}
 
+	if m.confirmationPending != nil {
+		lines = append(lines, "", m.renderConfirmation())
+	}
+
 	lines = append(lines, "", renderShortcuts(m.shortcutContext()))
 
 	return strings.Join(lines, "\n")
@@ -207,6 +254,25 @@ func (m *Model) renderActionsMenu() string {
 		"x Remove",
 		"p Prune",
 		"q Cancel",
+	}
+
+	return strings.Join(lines, "\n")
+}
+
+func (m *Model) renderConfirmation() string {
+	if m.confirmationPending == nil {
+		return ""
+	}
+
+	target := m.confirmationPending.resourceName
+	if m.confirmationPending.action == "prune" {
+		target = string(m.confirmationPending.kind) + "s"
+	}
+
+	lines := []string{
+		"Confirm " + m.confirmationPending.action + " " + target + "?",
+		"y Confirm",
+		"n Cancel",
 	}
 
 	return strings.Join(lines, "\n")

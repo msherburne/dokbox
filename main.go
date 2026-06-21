@@ -8,6 +8,7 @@ import (
 	"github.com/msherburne/dokbox/internal/app"
 	"github.com/msherburne/dokbox/internal/config"
 	"github.com/msherburne/dokbox/internal/docker"
+	"github.com/msherburne/dokbox/internal/theme"
 )
 
 func main() {
@@ -15,6 +16,8 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
+
+	activeTheme, _ := theme.Resolve(cfg.Theme)
 
 	deps := app.Dependencies{
 		ConnectionChecker: docker.NewStatusChecker(cfg.DockerHost),
@@ -39,7 +42,7 @@ func main() {
 	}
 
 	program := tea.NewProgram(
-		app.NewModel(deps),
+		app.NewModel(deps, app.NewStyles(activeTheme)),
 		tea.WithAltScreen(),
 	)
 	if _, err := program.Run(); err != nil {

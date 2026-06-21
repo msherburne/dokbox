@@ -1,13 +1,16 @@
 package docker
 
 import (
+	"archive/tar"
 	"context"
 	"encoding/json"
 	"fmt"
 	"io"
 	"math"
 	"os"
+	pathpkg "path"
 	"runtime"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -195,25 +198,130 @@ func (c *Client) OpenShell(containerID string) (*domain.ExecSession, error) {
 }
 
 func (c *Client) ListContainerPath(containerID string, path string) ([]domain.FileEntry, error) {
-	stat, err := c.api.ContainerStatPath(context.Background(), containerID, path)
+	normalizedPath := normalizeContainerArchivePath(path)
+	archivePath := normalizedPath
+	if archivePath == "/" {
+		archivePath = "/."
+	} else {
+		archivePath = normalizedPath + "/."
+	}
+
+	reader, stat, err := c.api.CopyFromContainer(context.Background(), containerID, archivePath)
 	if err != nil {
-		return nil, err
+		reader, stat, err = c.api.CopyFromContainer(context.Background(), containerID, normalizedPath)
+		if err != nil {
+			return nil, err
+		}
+	}
+	defer reader.Close()
+
+	if !stat.Mode.IsDir() {
+		name := stat.Name
+		if name == "" {
+			name = normalizedPath
+		}
+
+		return []domain.FileEntry{
+			{
+				Path:  normalizedPath,
+				Name:  name,
+				IsDir: false,
+				Size:  stat.Size,
+				Mode:  stat.Mode.String(),
+			},
+		}, nil
 	}
 
-	name := stat.Name
-	if name == "" {
-		name = path
+	return listArchiveDirectoryEntries(reader, normalizedPath)
+}
+
+func listArchiveDirectoryEntries(reader io.Reader, currentPath string) ([]domain.FileEntry, error) {
+	tr := tar.NewReader(reader)
+	entries := map[string]domain.FileEntry{}
+
+	for {
+		header, err := tr.Next()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return nil, err
+		}
+
+		name, nested, ok := archiveEntryName(header.Name)
+		if !ok {
+			continue
+		}
+
+		entry, exists := entries[name]
+		if !exists {
+			entry = domain.FileEntry{
+				Path: childArchivePath(currentPath, name),
+				Name: name,
+			}
+		}
+		if nested || header.FileInfo().IsDir() {
+			entry.IsDir = true
+		}
+		if entry.Mode == "" || entry.Mode == "----------" {
+			entry.Mode = header.FileInfo().Mode().String()
+		}
+		if entry.Size == 0 {
+			entry.Size = header.FileInfo().Size()
+		}
+		entries[name] = entry
 	}
 
-	return []domain.FileEntry{
-		{
-			Path:  path,
-			Name:  name,
-			IsDir: stat.Mode.IsDir(),
-			Size:  stat.Size,
-			Mode:  stat.Mode.String(),
-		},
-	}, nil
+	result := make([]domain.FileEntry, 0, len(entries))
+	for _, entry := range entries {
+		if entry.IsDir && (entry.Mode == "" || entry.Mode == "----------") {
+			entry.Mode = "drwxr-xr-x"
+		}
+		result = append(result, entry)
+	}
+
+	sort.SliceStable(result, func(i, j int) bool {
+		if result[i].IsDir != result[j].IsDir {
+			return result[i].IsDir
+		}
+		return result[i].Name < result[j].Name
+	})
+
+	return result, nil
+}
+
+func archiveEntryName(raw string) (string, bool, bool) {
+	cleaned := strings.TrimPrefix(raw, "./")
+	cleaned = strings.TrimPrefix(cleaned, "/")
+	cleaned = strings.TrimSuffix(cleaned, "/")
+	if cleaned == "" || cleaned == "." {
+		return "", false, false
+	}
+
+	parts := strings.Split(cleaned, "/")
+	return parts[0], len(parts) > 1, true
+}
+
+func childArchivePath(currentPath string, name string) string {
+	if currentPath == "/" {
+		return normalizeContainerArchivePath("/" + name)
+	}
+	return normalizeContainerArchivePath(currentPath + "/" + name)
+}
+
+func normalizeContainerArchivePath(value string) string {
+	if value == "" {
+		return "/"
+	}
+
+	cleaned := pathpkg.Clean(value)
+	if cleaned == "." {
+		return "/"
+	}
+	if !strings.HasPrefix(cleaned, "/") {
+		return "/" + cleaned
+	}
+	return cleaned
 }
 
 func (c *Client) ListResourceSummaries() ([]domain.ResourceSummary, error) {

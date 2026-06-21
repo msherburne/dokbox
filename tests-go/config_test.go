@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/msherburne/dokbox/internal/config"
+	"github.com/msherburne/dokbox/internal/theme"
 )
 
 func TestConfigPathUsesHomeDokboxJSON(t *testing.T) {
@@ -102,7 +103,7 @@ func TestResolveCurrentConfigDefaultsMissingThemeToDefault(t *testing.T) {
 	}
 }
 
-func TestResolveCurrentConfigFallsBackFromUnknownTheme(t *testing.T) {
+func TestResolveCurrentConfigPreservesUnknownTheme(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 
@@ -120,8 +121,77 @@ func TestResolveCurrentConfigFallsBackFromUnknownTheme(t *testing.T) {
 		t.Fatal("expected resolved config")
 	}
 
-	if cfg.Theme != "default" {
-		t.Fatalf("expected unknown theme to fall back to default, got %q", cfg.Theme)
+	if cfg.Theme != "aurora" {
+		t.Fatalf("expected unknown theme to remain configured as %q, got %q", "aurora", cfg.Theme)
+	}
+
+	resolvedTheme, resolvedThemeName := theme.Resolve(cfg.Theme)
+	if resolvedThemeName != "default" {
+		t.Fatalf("expected unknown theme to resolve at runtime as %q, got %q", "default", resolvedThemeName)
+	}
+
+	if resolvedTheme.Name != "default" {
+		t.Fatalf("expected runtime-resolved fallback theme %q, got %q", "default", resolvedTheme.Name)
+	}
+
+	savedBytes, err := os.ReadFile(configPath)
+	if err != nil {
+		t.Fatalf("read saved config: %v", err)
+	}
+
+	var saved map[string]any
+	if err := json.Unmarshal(savedBytes, &saved); err != nil {
+		t.Fatalf("unmarshal saved config: %v", err)
+	}
+
+	if saved["theme"] != "aurora" {
+		t.Fatalf("expected saved unknown theme to remain %q, got %#v", "aurora", saved["theme"])
+	}
+}
+
+func TestResolveCurrentConfigPreservesSupportedTheme(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
+	configPath := filepath.Join(home, ".dokbox.json")
+	if err := os.WriteFile(configPath, []byte(`{"config_version":1,"docker_host":"unix:///var/run/docker.sock","theme":"slate"}`), 0o600); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+
+	cfg, err := config.ResolveCurrentConfig()
+	if err != nil {
+		t.Fatalf("resolve config: %v", err)
+	}
+
+	if cfg == nil {
+		t.Fatal("expected resolved config")
+	}
+
+	if cfg.Theme != "slate" {
+		t.Fatalf("expected supported theme to remain %q, got %q", "slate", cfg.Theme)
+	}
+
+	resolvedTheme, resolvedThemeName := theme.Resolve(cfg.Theme)
+	if resolvedThemeName != "slate" {
+		t.Fatalf("expected supported theme to resolve as %q, got %q", "slate", resolvedThemeName)
+	}
+
+	if resolvedTheme.Name != "slate" {
+		t.Fatalf("expected resolved theme preset %q, got %q", "slate", resolvedTheme.Name)
+	}
+
+	savedBytes, err := os.ReadFile(configPath)
+	if err != nil {
+		t.Fatalf("read saved config: %v", err)
+	}
+
+	var saved map[string]any
+	if err := json.Unmarshal(savedBytes, &saved); err != nil {
+		t.Fatalf("unmarshal saved config: %v", err)
+	}
+
+	if saved["theme"] != "slate" {
+		t.Fatalf("expected saved supported theme to remain %q, got %#v", "slate", saved["theme"])
 	}
 }
 
@@ -156,6 +226,26 @@ func TestLoadOrSetupConfigPromptsBeforeSavingGeneratedDefault(t *testing.T) {
 	configPath := filepath.Join(home, ".dokbox.json")
 	if _, err := os.Stat(configPath); !os.IsNotExist(err) {
 		t.Fatalf("expected config not to be saved on declined prompt, stat err=%v", err)
+	}
+}
+
+func TestLoadOrSetupConfigShowsThemeInGeneratedDefault(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("DOCKER_HOST", "tcp://docker.example:2375")
+
+	var output strings.Builder
+	cfg, err := config.LoadOrSetupConfig(strings.NewReader("n\n"), &output)
+	if err != nil {
+		t.Fatalf("load or setup config: %v", err)
+	}
+
+	if cfg.Theme != "default" {
+		t.Fatalf("expected generated default theme %q, got %q", "default", cfg.Theme)
+	}
+
+	if !strings.Contains(output.String(), "\"theme\": \"default\"") {
+		t.Fatalf("expected generated default output to include default theme, got %q", output.String())
 	}
 }
 

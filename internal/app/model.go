@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"fmt"
+	"os/exec"
 	"strings"
 	"time"
 
@@ -36,6 +37,10 @@ type ShellProvider interface {
 	OpenShell(containerID string) (*domain.ExecSession, error)
 }
 
+type ShellLauncher interface {
+	LaunchShell(containerID string, session *domain.ExecSession, callback func(error) tea.Msg) tea.Cmd
+}
+
 type FileProvider interface {
 	ListContainerPath(containerID string, path string) ([]domain.FileEntry, error)
 }
@@ -46,6 +51,7 @@ type Dependencies struct {
 	LogProvider       LogProvider
 	MetricsProvider   MetricsProvider
 	ShellProvider     ShellProvider
+	ShellLauncher     ShellLauncher
 	FileProvider      FileProvider
 	InitialContainers []domain.ResourceSummary
 }
@@ -62,13 +68,27 @@ type actionResultMsg struct {
 	status string
 }
 
+type shellLaunchResultMsg struct {
+	session *domain.ExecSession
+	err     error
+}
+
 type detailLogsLoadedMsg struct {
+	containerID   string
 	containerName string
 	metrics       []domain.MetricSample
 	logs          []domain.LogLine
 	shellSession  *domain.ExecSession
+	shellErr      error
 	files         []domain.FileEntry
+	filesErr      error
 	err           error
+}
+
+type containerPathLoadedMsg struct {
+	path  string
+	files []domain.FileEntry
+	err   error
 }
 
 const connectionCheckTimeout = 2 * time.Second
@@ -78,13 +98,20 @@ type Model struct {
 	connectionStatus *domain.ConnectionStatus
 	lastActionStatus string
 	deps             Dependencies
+	styles           Styles
 	browser          *browser.Model
-	detail          *containerdetail.Model
+	detail           *containerdetail.Model
 }
 
-func NewModel(deps Dependencies) *Model {
+func NewModel(deps Dependencies, styles ...Styles) *Model {
+	activeStyles := defaultStyles()
+	if len(styles) > 0 {
+		activeStyles = styles[0]
+	}
+
 	return &Model{
 		deps:    deps,
+		styles:  activeStyles,
 		browser: browser.NewModel(deps.InitialContainers),
 	}
 }
@@ -122,17 +149,40 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, m.runActionCmd(msg)
 	case browser.OpenContainerDetailRequest:
 		return m, m.loadDetailLogsCmd(msg)
+	case containerdetail.LaunchShellRequest:
+		return m, m.launchShellCmd(msg)
+	case containerdetail.NavigateContainerPathRequest:
+		return m, m.loadContainerPathCmd(msg)
 	case actionResultMsg:
 		m.lastActionStatus = msg.status
 		return m, nil
 	case detailLogsLoadedMsg:
 		m.detail = containerdetail.NewModel(
+			msg.containerID,
 			msg.containerName,
 			msg.metrics,
 			msg.logs,
 			msg.shellSession,
 			msg.files,
 		)
+		if msg.shellErr != nil {
+			m.detail.ApplyShellLaunchResult(nil, msg.shellErr)
+		}
+		if msg.filesErr != nil {
+			m.detail.ApplyFileNavigationResult("/", nil, msg.filesErr)
+		}
+		return m, nil
+	case shellLaunchResultMsg:
+		if m.detail != nil {
+			m.detail.ApplyShellLaunchResult(msg.session, msg.err)
+		}
+		return m, nil
+	case shellLaunchReadyMsg:
+		return m, m.execShellCmd(msg.containerID, msg.session)
+	case containerPathLoadedMsg:
+		if m.detail != nil {
+			m.detail.ApplyFileNavigationResult(msg.path, msg.files, msg.err)
+		}
 		return m, nil
 	case tea.KeyMsg:
 		if m.detail != nil {
@@ -180,7 +230,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 func (m *Model) View() string {
 	if !m.ready {
-		return ShellStyle.Render("dokbox-go\n\nBootstrapping shell...")
+		return m.styles.Shell.Render("dokbox-go\n\nBootstrapping shell...")
 	}
 
 	lines := []string{
@@ -197,7 +247,7 @@ func (m *Model) View() string {
 
 	if m.detail != nil {
 		lines = append(lines, "", m.detail.View())
-		return ShellStyle.Render(strings.Join(lines, "\n"))
+		return m.styles.Shell.Render(strings.Join(lines, "\n"))
 	}
 
 	if m.browser != nil {
@@ -208,7 +258,7 @@ func (m *Model) View() string {
 		lines = append(lines, "", "Last action: "+m.lastActionStatus)
 	}
 
-	return ShellStyle.Render(strings.Join(lines, "\n"))
+	return m.styles.Shell.Render(strings.Join(lines, "\n"))
 }
 
 func (m *Model) runActionCmd(request browser.ActionRequest) tea.Cmd {
@@ -240,30 +290,100 @@ func (m *Model) runActionCmd(request browser.ActionRequest) tea.Cmd {
 
 func (m *Model) loadDetailLogsCmd(request browser.OpenContainerDetailRequest) tea.Cmd {
 	return func() tea.Msg {
-		if m.deps.LogProvider == nil {
-			return detailLogsLoadedMsg{containerName: request.ResourceName}
+		var logs []domain.LogLine
+		var err error
+		if m.deps.LogProvider != nil {
+			logs, err = m.deps.LogProvider.ContainerLogs(request.ResourceID, 200)
 		}
 
-		logs, err := m.deps.LogProvider.ContainerLogs(request.ResourceID, 200)
 		var metrics []domain.MetricSample
 		if m.deps.MetricsProvider != nil {
 			metrics, _ = m.deps.MetricsProvider.ContainerMetrics(request.ResourceID)
 		}
 		var shellSession *domain.ExecSession
+		var shellErr error
 		if m.deps.ShellProvider != nil {
-			shellSession, _ = m.deps.ShellProvider.OpenShell(request.ResourceID)
+			shellSession, shellErr = m.deps.ShellProvider.OpenShell(request.ResourceID)
 		}
 		var files []domain.FileEntry
+		var filesErr error
 		if m.deps.FileProvider != nil {
-			files, _ = m.deps.FileProvider.ListContainerPath(request.ResourceID, "/")
+			files, filesErr = m.deps.FileProvider.ListContainerPath(request.ResourceID, "/")
 		}
 		return detailLogsLoadedMsg{
+			containerID:   request.ResourceID,
 			containerName: request.ResourceName,
 			metrics:       metrics,
 			logs:          logs,
 			shellSession:  shellSession,
+			shellErr:      shellErr,
 			files:         files,
+			filesErr:      filesErr,
 			err:           err,
 		}
 	}
+}
+
+func (m *Model) launchShellCmd(request containerdetail.LaunchShellRequest) tea.Cmd {
+	return func() tea.Msg {
+		if m.deps.ShellProvider == nil {
+			return shellLaunchResultMsg{err: fmt.Errorf("shell unavailable")}
+		}
+
+		session, err := m.deps.ShellProvider.OpenShell(request.ContainerID)
+		if err != nil {
+			return shellLaunchResultMsg{err: err}
+		}
+
+		return shellLaunchReadyMsg{
+			containerID: request.ContainerID,
+			session:     session,
+		}
+	}
+}
+
+type shellLaunchReadyMsg struct {
+	containerID string
+	session     *domain.ExecSession
+}
+
+func (m *Model) loadContainerPathCmd(request containerdetail.NavigateContainerPathRequest) tea.Cmd {
+	return func() tea.Msg {
+		if m.deps.FileProvider == nil {
+			return containerPathLoadedMsg{path: request.Path}
+		}
+
+		files, err := m.deps.FileProvider.ListContainerPath(request.ContainerID, request.Path)
+		return containerPathLoadedMsg{
+			path:  request.Path,
+			files: files,
+			err:   err,
+		}
+	}
+}
+
+func (m *Model) execShellCmd(containerID string, session *domain.ExecSession) tea.Cmd {
+	if session == nil || len(session.Command) == 0 {
+		return func() tea.Msg {
+			return shellLaunchResultMsg{err: fmt.Errorf("shell unavailable")}
+		}
+	}
+
+	if m.deps.ShellLauncher != nil {
+		return m.deps.ShellLauncher.LaunchShell(containerID, session, func(err error) tea.Msg {
+			return shellLaunchResultMsg{
+				session: session,
+				err:     err,
+			}
+		})
+	}
+
+	args := append([]string{"exec", "-it", containerID}, session.Command...)
+	command := exec.Command("docker", args...)
+	return tea.ExecProcess(command, func(err error) tea.Msg {
+		return shellLaunchResultMsg{
+			session: session,
+			err:     err,
+		}
+	})
 }
