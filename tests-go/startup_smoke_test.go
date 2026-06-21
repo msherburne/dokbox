@@ -593,7 +593,10 @@ func TestNewModelOpensContainerDetailAndShowsLogs(t *testing.T) {
 
 	nextModel, _ = nextModel.Update(tea.KeyMsg{Type: tea.KeyRight})
 	view = nextModel.View()
-	if !strings.Contains(view, "[Files]") || !strings.Contains(view, "[d] etc drwxr-xr-x") {
+	if !strings.Contains(view, "[Files]") || !strings.Contains(view, "Type") || !strings.Contains(view, "Name") || !strings.Contains(view, "Mode") {
+		t.Fatalf("expected structured files detail headers, got %q", view)
+	}
+	if !strings.Contains(view, "dir") || !strings.Contains(view, "etc") || !strings.Contains(view, "Selected: etc") {
 		t.Fatalf("expected files detail view, got %q", view)
 	}
 }
@@ -800,7 +803,7 @@ func TestNewModelNavigatesContainerFilesIntoDirectoryAndBack(t *testing.T) {
 	nextModel, _ = nextModel.Update(tea.KeyMsg{Type: tea.KeyRight})
 
 	view := nextModel.View()
-	if !strings.Contains(view, "Path: /") || !strings.Contains(view, "> [d] etc drwxr-xr-x") {
+	if !strings.Contains(view, "Path: /") || !strings.Contains(view, "Selected: etc") {
 		t.Fatalf("expected root files view with selected directory, got %q", view)
 	}
 	if len(fileProvider.paths) != 1 || fileProvider.paths[0] != "/" {
@@ -819,7 +822,7 @@ func TestNewModelNavigatesContainerFilesIntoDirectoryAndBack(t *testing.T) {
 
 	nextModel, _ = nextModel.Update(cmd())
 	view = nextModel.View()
-	if !strings.Contains(view, "Path: /etc") || !strings.Contains(view, "> [f] config.yaml -rw-r--r--") {
+	if !strings.Contains(view, "Path: /etc") || !strings.Contains(view, "config.yaml") || !strings.Contains(view, "Selected: config.yaml") {
 		t.Fatalf("expected child directory contents, got %q", view)
 	}
 	if got := fileProvider.paths[len(fileProvider.paths)-1]; got != "/etc" {
@@ -838,7 +841,7 @@ func TestNewModelNavigatesContainerFilesIntoDirectoryAndBack(t *testing.T) {
 
 	nextModel, _ = nextModel.Update(cmd())
 	view = nextModel.View()
-	if !strings.Contains(view, "Path: /") || !strings.Contains(view, "> [d] etc drwxr-xr-x") {
+	if !strings.Contains(view, "Path: /") || !strings.Contains(view, "Selected: etc") {
 		t.Fatalf("expected root directory contents after navigating back, got %q", view)
 	}
 	if got := fileProvider.paths[len(fileProvider.paths)-1]; got != "/" {

@@ -9,3 +9,4 @@ superpowers
 .worktrees
 /dist/
 /.cache/
+/.tmp/

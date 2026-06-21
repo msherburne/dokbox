@@ -3,6 +3,7 @@ package browser
 import (
 	"strings"
 
+	"github.com/charmbracelet/lipgloss"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/msherburne/dokbox/internal/domain"
 	"github.com/msherburne/dokbox/internal/viewmodel"
@@ -15,6 +16,24 @@ const (
 	focusTable focusTarget = "table"
 )
 
+var (
+	browserPanelStyle = lipgloss.NewStyle().
+				Border(lipgloss.RoundedBorder()).
+				BorderForeground(lipgloss.Color("8")).
+				Padding(0, 1)
+	browserTitleStyle = lipgloss.NewStyle().
+				Bold(true).
+				Foreground(lipgloss.Color("15"))
+	browserMetaStyle = lipgloss.NewStyle().
+				Foreground(lipgloss.Color("8"))
+	browserShortcutStyle = lipgloss.NewStyle().
+				Foreground(lipgloss.Color("8"))
+	browserMenuStyle = lipgloss.NewStyle().
+				Border(lipgloss.NormalBorder()).
+				BorderForeground(lipgloss.Color("8")).
+				Padding(0, 1)
+)
+
 type Model struct {
 	tabs                []tab
 	activeTab           int
@@ -22,6 +41,8 @@ type Model struct {
 	tables              map[domain.ResourceKind]*tableModel
 	actionsOpen         bool
 	confirmationPending *pendingConfirmation
+	width               int
+	height              int
 }
 
 type pendingConfirmation struct {
@@ -69,6 +90,17 @@ func NewModel(resources []domain.ResourceSummary) *Model {
 
 func (m *Model) Init() tea.Cmd {
 	return nil
+}
+
+func (m *Model) SetWidth(width int) {
+	m.width = width
+	for _, table := range m.tables {
+		table.SetWidth(width - browserPanelStyle.GetHorizontalBorderSize())
+	}
+}
+
+func (m *Model) SetHeight(height int) {
+	m.height = height
 }
 
 func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -143,6 +175,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		switch keyMsg.String() {
 		case "enter":
 			m.focus = focusTable
+			m.currentTable().Focus()
 		case "left":
 			if m.activeTab > 0 {
 				m.activeTab--
@@ -177,6 +210,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		case "q":
 			m.focus = focusTabs
+			table.Blur()
 		}
 	}
 
@@ -184,10 +218,16 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m *Model) View() string {
+	table := m.currentTable()
 	lines := []string{
+		browserTitleStyle.Render("Resources"),
 		renderTabs(m.tabs, m.activeTab),
 		"",
-		m.currentTable().View(m.focus == focusTable),
+		table.View(),
+	}
+
+	if table.Selected() != nil {
+		lines = append(lines, "", browserMetaStyle.Render(table.SelectionSummary()))
 	}
 
 	if m.actionsOpen {
@@ -199,8 +239,23 @@ func (m *Model) View() string {
 	}
 
 	lines = append(lines, "", renderShortcuts(m.shortcutContext()))
+	content := strings.Join(lines, "\n")
 
-	return strings.Join(lines, "\n")
+	if m.height > 0 {
+		maxHeight := m.height - browserPanelStyle.GetVerticalBorderSize()
+		content = clipLines(content, maxHeight, browserMetaStyle.Render("More rows below"))
+	}
+
+	panelStyle := browserPanelStyle
+	if m.width > 0 {
+		width := m.width - panelStyle.GetHorizontalBorderSize()
+		if width < 0 {
+			width = 0
+		}
+		panelStyle = panelStyle.Width(width)
+	}
+
+	return panelStyle.Render(content)
 }
 
 func (m *Model) shortcutContext() string {
@@ -225,7 +280,25 @@ func renderShortcuts(context string) string {
 	for _, hint := range hints {
 		parts = append(parts, hint.Key+" "+hint.Label)
 	}
-	return strings.Join(parts, " | ")
+	return browserShortcutStyle.Render(strings.Join(parts, " | "))
+}
+
+func clipLines(content string, maxHeight int, indicator string) string {
+	if maxHeight <= 0 {
+		return indicator
+	}
+
+	lines := strings.Split(content, "\n")
+	if len(lines) <= maxHeight {
+		return content
+	}
+	if maxHeight == 1 {
+		return indicator
+	}
+
+	clipped := append([]string{}, lines[:maxHeight-1]...)
+	clipped = append(clipped, indicator)
+	return strings.Join(clipped, "\n")
 }
 
 func (m *Model) TableFocused() bool {
@@ -256,7 +329,7 @@ func (m *Model) renderActionsMenu() string {
 		"q Cancel",
 	}
 
-	return strings.Join(lines, "\n")
+	return browserMenuStyle.Render(strings.Join(lines, "\n"))
 }
 
 func (m *Model) renderConfirmation() string {

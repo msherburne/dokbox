@@ -5,7 +5,9 @@ import (
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 	"github.com/msherburne/dokbox/internal/domain"
+	"github.com/msherburne/dokbox/internal/theme"
 	"github.com/msherburne/dokbox/internal/ui/containerdetail"
 )
 
@@ -20,8 +22,14 @@ func TestContainerDetailDefaultsToOverviewAndCanShowLogs(t *testing.T) {
 	})
 
 	initialView := model.View()
+	if !strings.Contains(initialView, "Container Detail") {
+		t.Fatalf("expected framed detail title, got %q", initialView)
+	}
 	if !strings.Contains(initialView, "[Overview]") {
 		t.Fatalf("expected overview tab active, got %q", initialView)
+	}
+	if !strings.Contains(initialView, "Container: api") {
+		t.Fatalf("expected container header, got %q", initialView)
 	}
 	if !strings.Contains(initialView, "CPU: 25% of 4 cores") {
 		t.Fatalf("expected overview content, got %q", initialView)
@@ -72,7 +80,10 @@ func TestContainerDetailShowsShellAndFiles(t *testing.T) {
 
 	nextModel, _ = nextModel.Update(tea.KeyMsg{Type: tea.KeyRight})
 	filesView := nextModel.View()
-	if !strings.Contains(filesView, "[Files]") || !strings.Contains(filesView, "[d] etc drwxr-xr-x") {
+	if !strings.Contains(filesView, "[Files]") || !strings.Contains(filesView, "Type") || !strings.Contains(filesView, "Name") || !strings.Contains(filesView, "Mode") {
+		t.Fatalf("expected structured files headers, got %q", filesView)
+	}
+	if !strings.Contains(filesView, "dir") || !strings.Contains(filesView, "etc") || !strings.Contains(filesView, "drwxr-xr-x") {
 		t.Fatalf("expected files view, got %q", filesView)
 	}
 }
@@ -146,7 +157,7 @@ func TestContainerDetailFilesCanRequestDirectoryEntry(t *testing.T) {
 	if !strings.Contains(view, "Path: /") {
 		t.Fatalf("expected files view to show current path, got %q", view)
 	}
-	if !strings.Contains(view, "> [d] etc drwxr-xr-x") {
+	if !strings.Contains(view, "Selected: etc") {
 		t.Fatalf("expected selected directory to be highlighted, got %q", view)
 	}
 }
@@ -181,5 +192,116 @@ func TestContainerDetailFilesCanRequestParentNavigation(t *testing.T) {
 	}
 	if request.Path != "/" {
 		t.Fatalf("expected parent navigation to root, got %q", request.Path)
+	}
+}
+
+func TestContainerDetailTruncatesLongFileRowsWithinConfiguredWidth(t *testing.T) {
+	model := containerdetail.NewModel(
+		"container-1",
+		"api",
+		nil,
+		nil,
+		nil,
+		[]domain.FileEntry{
+			{
+				Name: "extremely-long-config-filename-that-should-truncate.yaml",
+				Path: "/etc/extremely-long-config-filename-that-should-truncate.yaml",
+				Mode: "-rw-r--r--",
+			},
+		},
+	)
+	model.SetWidth(58)
+
+	nextModel, _ := model.Update(tea.KeyMsg{Type: tea.KeyRight})
+	nextModel, _ = nextModel.Update(tea.KeyMsg{Type: tea.KeyRight})
+	nextModel, _ = nextModel.Update(tea.KeyMsg{Type: tea.KeyRight})
+
+	view := nextModel.View()
+	if got := lipgloss.Width(view); got > 58 {
+		t.Fatalf("expected detail view width <= 58, got %d with view %q", got, view)
+	}
+	if !strings.Contains(view, "…") {
+		t.Fatalf("expected truncated file row to include ellipsis, got %q", view)
+	}
+}
+
+func TestContainerDetailClipsTallLogsWithinConfiguredHeight(t *testing.T) {
+	model := containerdetail.NewModel(
+		"container-1",
+		"api",
+		nil,
+		[]domain.LogLine{
+			{Text: "line-1"},
+			{Text: "line-2"},
+			{Text: "line-3"},
+			{Text: "line-4"},
+			{Text: "line-5"},
+			{Text: "line-6"},
+		},
+		nil,
+		nil,
+	)
+	model.SetWidth(64)
+	model.SetHeight(10)
+
+	nextModel, _ := model.Update(tea.KeyMsg{Type: tea.KeyRight})
+	view := nextModel.View()
+	if got := lipgloss.Height(view); got > 10 {
+		t.Fatalf("expected detail view height <= 10, got %d with view %q", got, view)
+	}
+	if !strings.Contains(view, "More content below") {
+		t.Fatalf("expected clipped detail view to indicate hidden content, got %q", view)
+	}
+}
+
+func TestContainerDetailTabsStaySingleLineWhenSwitching(t *testing.T) {
+	model := containerdetail.NewModel(
+		"container-1",
+		"api",
+		[]domain.MetricSample{{Name: "CPU", Label: "25%"}},
+		[]domain.LogLine{{Text: "ready"}},
+		nil,
+		nil,
+	)
+	model.SetWidth(90)
+
+	initialView := model.View()
+	if strings.Contains(initialView, "│ │ [Overview] │") || strings.Contains(initialView, "┌────────────┐") {
+		t.Fatalf("expected detail tabs to render inline without boxed multi-line chrome, got %q", initialView)
+	}
+	if !strings.Contains(initialView, "[Overview]   Logs   Shell   Files") {
+		t.Fatalf("expected detail tabs to share one inline row, got %q", initialView)
+	}
+
+	nextModel, _ := model.Update(tea.KeyMsg{Type: tea.KeyRight})
+	switchedView := nextModel.View()
+	if strings.Contains(switchedView, "│ │ [Logs] │") || strings.Contains(switchedView, "┌────────┐") {
+		t.Fatalf("expected switched detail tabs to remain inline without boxed multi-line chrome, got %q", switchedView)
+	}
+	if !strings.Contains(switchedView, "Overview   [Logs]   Shell   Files") {
+		t.Fatalf("expected switched detail tabs to share one inline row, got %q", switchedView)
+	}
+}
+
+func TestContainerDetailStylesUseSemanticFeedbackColors(t *testing.T) {
+	styles := containerdetail.NewStyles(theme.Theme{
+		Name:       "test",
+		Panel:      "#202020",
+		Border:     "#303030",
+		Text:       "#efefef",
+		Muted:      "#9a9a9a",
+		Error:      "#cc2222",
+		Info:       "#2277cc",
+		Focus:      "#55bbff",
+	})
+
+	if got := styles.Error.GetForeground(); got != lipgloss.Color("#cc2222") {
+		t.Fatalf("expected detail error foreground %q, got %q", "#cc2222", got)
+	}
+	if got := styles.Info.GetForeground(); got != lipgloss.Color("#2277cc") {
+		t.Fatalf("expected detail info foreground %q, got %q", "#2277cc", got)
+	}
+	if got := styles.Meta.GetForeground(); got != lipgloss.Color("#9a9a9a") {
+		t.Fatalf("expected detail meta foreground %q, got %q", "#9a9a9a", got)
 	}
 }

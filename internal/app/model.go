@@ -66,7 +66,17 @@ type startupCompleteMsg struct {
 
 type actionResultMsg struct {
 	status string
+	level  statusLevel
 }
+
+type statusLevel string
+
+const (
+	statusLevelSuccess statusLevel = "success"
+	statusLevelWarning statusLevel = "warning"
+	statusLevelError   statusLevel = "error"
+	statusLevelInfo    statusLevel = "info"
+)
 
 type shellLaunchResultMsg struct {
 	session *domain.ExecSession
@@ -97,6 +107,9 @@ type Model struct {
 	ready            bool
 	connectionStatus *domain.ConnectionStatus
 	lastActionStatus string
+	lastActionLevel  statusLevel
+	width            int
+	height           int
 	deps             Dependencies
 	styles           Styles
 	browser          *browser.Model
@@ -142,6 +155,11 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.ready = true
 		m.connectionStatus = msg.connectionStatus
 		return m, nil
+	case tea.WindowSizeMsg:
+		m.width = msg.Width
+		m.height = msg.Height
+		m.applyContentWidths()
+		return m, nil
 	case browser.ActionRequest:
 		if m.deps.ActionRunner == nil {
 			return m, nil
@@ -155,6 +173,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, m.loadContainerPathCmd(msg)
 	case actionResultMsg:
 		m.lastActionStatus = msg.status
+		m.lastActionLevel = msg.level
 		return m, nil
 	case detailLogsLoadedMsg:
 		m.detail = containerdetail.NewModel(
@@ -164,6 +183,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			msg.logs,
 			msg.shellSession,
 			msg.files,
+			containerdetail.NewStyles(m.styles.Theme()),
 		)
 		if msg.shellErr != nil {
 			m.detail.ApplyShellLaunchResult(nil, msg.shellErr)
@@ -171,6 +191,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.filesErr != nil {
 			m.detail.ApplyFileNavigationResult("/", nil, msg.filesErr)
 		}
+		m.applyContentWidths()
 		return m, nil
 	case shellLaunchResultMsg:
 		if m.detail != nil {
@@ -228,26 +249,79 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+func (m *Model) applyContentWidths() {
+	contentWidth := m.contentWidth()
+	contentHeight := m.contentHeight()
+	if m.browser != nil {
+		m.browser.SetWidth(contentWidth)
+		m.browser.SetHeight(contentHeight)
+	}
+	if m.detail != nil {
+		m.detail.SetWidth(contentWidth)
+		m.detail.SetHeight(contentHeight)
+	}
+}
+
+func (m *Model) contentWidth() int {
+	if m.width <= 0 {
+		return 0
+	}
+
+	contentWidth := m.width - m.styles.Shell.GetHorizontalBorderSize() - m.styles.Shell.GetHorizontalPadding()
+	if contentWidth < 0 {
+		return 0
+	}
+	return contentWidth
+}
+
+func (m *Model) contentHeight() int {
+	if m.height <= 0 {
+		return 0
+	}
+
+	contentHeight := m.height - m.styles.Shell.GetVerticalBorderSize() - m.styles.Shell.GetVerticalPadding()
+	if contentHeight < 0 {
+		return 0
+	}
+	return contentHeight
+}
+
 func (m *Model) View() string {
+	shellStyle := m.styles.Shell
+	if m.width > 0 {
+		width := m.width - shellStyle.GetHorizontalBorderSize()
+		if width < 0 {
+			width = 0
+		}
+		shellStyle = shellStyle.Width(width)
+	}
+	if m.height > 0 {
+		height := m.height - shellStyle.GetVerticalBorderSize()
+		if height < 0 {
+			height = 0
+		}
+		shellStyle = shellStyle.Height(height)
+	}
+
 	if !m.ready {
-		return m.styles.Shell.Render("dokbox-go\n\nBootstrapping shell...")
+		return shellStyle.Render("dokbox-go\n\nBootstrapping shell...")
 	}
 
 	lines := []string{
 		"dokbox-go",
 	}
 
-	if m.connectionStatus != nil {
-		if m.connectionStatus.OK {
-			lines = append(lines, "", "Docker: "+m.connectionStatus.Message)
-		} else {
-			lines = append(lines, "", "Docker connection failed: "+m.connectionStatus.Message)
+		if m.connectionStatus != nil {
+			if m.connectionStatus.OK {
+				lines = append(lines, "", m.styles.Success.Render("Docker: "+m.connectionStatus.Message))
+			} else {
+				lines = append(lines, "", m.styles.Error.Render("Docker connection failed: "+m.connectionStatus.Message))
+			}
 		}
-	}
 
 	if m.detail != nil {
 		lines = append(lines, "", m.detail.View())
-		return m.styles.Shell.Render(strings.Join(lines, "\n"))
+		return shellStyle.Render(strings.Join(lines, "\n"))
 	}
 
 	if m.browser != nil {
@@ -255,10 +329,10 @@ func (m *Model) View() string {
 	}
 
 	if m.lastActionStatus != "" {
-		lines = append(lines, "", "Last action: "+m.lastActionStatus)
+		lines = append(lines, "", m.renderStatusMessage("Last action: "+m.lastActionStatus, m.lastActionLevel))
 	}
 
-	return m.styles.Shell.Render(strings.Join(lines, "\n"))
+	return shellStyle.Render(strings.Join(lines, "\n"))
 }
 
 func (m *Model) runActionCmd(request browser.ActionRequest) tea.Cmd {
@@ -281,10 +355,26 @@ func (m *Model) runActionCmd(request browser.ActionRequest) tea.Cmd {
 		if err != nil {
 			return actionResultMsg{
 				status: fmt.Sprintf("%s %s failed: %v", request.Action, request.ResourceName, err),
+				level:  statusLevelError,
 			}
 		}
 
-		return actionResultMsg{status: request.Action + " " + request.ResourceName}
+		return actionResultMsg{status: request.Action + " " + request.ResourceName, level: statusLevelSuccess}
+	}
+}
+
+func (m *Model) renderStatusMessage(message string, level statusLevel) string {
+	switch level {
+	case statusLevelSuccess:
+		return m.styles.Success.Render(message)
+	case statusLevelWarning:
+		return m.styles.Warning.Render(message)
+	case statusLevelError:
+		return m.styles.Error.Render(message)
+	case statusLevelInfo:
+		return m.styles.Info.Render(message)
+	default:
+		return m.styles.Info.Render(message)
 	}
 }
 

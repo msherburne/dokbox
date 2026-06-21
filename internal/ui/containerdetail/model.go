@@ -5,6 +5,8 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/charmbracelet/lipgloss"
+	"github.com/msherburne/dokbox/internal/theme"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/msherburne/dokbox/internal/domain"
 )
@@ -47,6 +49,21 @@ type Model struct {
 	activeTab     int
 	shellStatus   shellState
 	shellError    string
+	width         int
+	height        int
+	styles        Styles
+}
+
+type Styles struct {
+	Panel       lipgloss.Style
+	Title       lipgloss.Style
+	Meta        lipgloss.Style
+	Content     lipgloss.Style
+	Error       lipgloss.Style
+	Info        lipgloss.Style
+	ActiveTab   lipgloss.Style
+	InactiveTab lipgloss.Style
+	SelectedRow lipgloss.Style
 }
 
 func NewModel(
@@ -56,10 +73,16 @@ func NewModel(
 	logs []domain.LogLine,
 	shellSession *domain.ExecSession,
 	files []domain.FileEntry,
+	styles ...Styles,
 ) *Model {
 	status := shellStateFailed
 	if shellSession != nil && len(shellSession.Command) > 0 {
 		status = shellStateIdle
+	}
+
+	activeStyles := defaultStyles()
+	if len(styles) > 0 {
+		activeStyles = styles[0]
 	}
 
 	return &Model{
@@ -77,11 +100,68 @@ func NewModel(
 			{title: "Shell"},
 			{title: "Files"},
 		},
+		styles: activeStyles,
 	}
+}
+
+func NewStyles(active theme.Theme) Styles {
+	panel := active.Panel
+	if panel == "" {
+		panel = active.Background
+	}
+
+	border := active.Border
+	if border == "" {
+		border = active.Text
+	}
+
+	return Styles{
+		Panel: lipgloss.NewStyle().
+			Border(lipgloss.RoundedBorder()).
+			BorderForeground(lipgloss.Color(border)).
+			Padding(0, 1),
+		Title: lipgloss.NewStyle().
+			Bold(true).
+			Foreground(lipgloss.Color(active.Text)),
+		Meta: lipgloss.NewStyle().
+			Foreground(lipgloss.Color(active.Muted)),
+		Content: lipgloss.NewStyle().
+			Foreground(lipgloss.Color(active.Text)),
+		Error: lipgloss.NewStyle().
+			Bold(true).
+			Foreground(lipgloss.Color(active.Error)),
+		Info: lipgloss.NewStyle().
+			Bold(true).
+			Foreground(lipgloss.Color(active.Info)),
+		ActiveTab: lipgloss.NewStyle().
+			Bold(true).
+			Padding(0, 1).
+			Foreground(lipgloss.Color(active.Emphasis)).
+			Background(lipgloss.Color(active.Focus)),
+		InactiveTab: lipgloss.NewStyle().
+			Padding(0, 1).
+			Foreground(lipgloss.Color(active.Muted)),
+		SelectedRow: lipgloss.NewStyle().
+			Bold(true).
+			Foreground(lipgloss.Color(active.Focus)),
+	}
+}
+
+func defaultStyles() Styles {
+	activeTheme, _ := theme.Resolve(theme.DefaultPreset)
+	return NewStyles(activeTheme)
 }
 
 func (m *Model) Init() tea.Cmd {
 	return nil
+}
+
+func (m *Model) SetWidth(width int) {
+	m.width = width
+}
+
+func (m *Model) SetHeight(height int) {
+	m.height = height
 }
 
 func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -147,14 +227,30 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 func (m *Model) View() string {
 	lines := []string{
-		renderTabs(m.tabs, m.activeTab),
+		m.styles.Title.Render("Container Detail"),
+		m.renderTabs(m.tabs, m.activeTab),
 		"",
-		"Container: " + m.containerName,
+		m.styles.Meta.Render("Container: " + m.containerName),
 		"",
-		m.activeContent(),
+		m.styles.Content.Render(m.activeContent()),
+	}
+	content := strings.Join(lines, "\n")
+
+	if m.height > 0 {
+		maxHeight := m.height - m.styles.Panel.GetVerticalBorderSize()
+		content = clipDetailLines(content, maxHeight, m.styles.Info.Render("More content below"))
 	}
 
-	return strings.Join(lines, "\n")
+	panelStyle := m.styles.Panel
+	if m.width > 0 {
+		width := m.width - panelStyle.GetHorizontalBorderSize()
+		if width < 0 {
+			width = 0
+		}
+		panelStyle = panelStyle.Width(width)
+	}
+
+	return panelStyle.Render(content)
 }
 
 func (m *Model) activeContent() string {
@@ -173,12 +269,12 @@ func (m *Model) activeContent() string {
 		if m.shellSession == nil || len(m.shellSession.Command) == 0 {
 			if m.shellError != "" {
 				return strings.Join([]string{
-					"Shell unavailable.",
+					m.styles.Info.Render("Shell unavailable."),
 					"Shell status: " + string(m.shellStatus),
-					"Shell error: " + m.shellError,
+					m.styles.Error.Render("Shell error: " + m.shellError),
 				}, "\n")
 			}
-			return "Shell unavailable."
+			return m.styles.Info.Render("Shell unavailable.")
 		}
 
 		lines := []string{
@@ -187,7 +283,7 @@ func (m *Model) activeContent() string {
 			"Enter Launch Shell",
 		}
 		if m.shellError != "" {
-			lines = append(lines, "Shell error: "+m.shellError)
+			lines = append(lines, m.styles.Error.Render("Shell error: "+m.shellError))
 		}
 		return strings.Join(lines, "\n")
 	case "Files":
@@ -195,24 +291,16 @@ func (m *Model) activeContent() string {
 			"Path: " + m.currentPath,
 		}
 		if m.fileError != "" {
-			lines = append(lines, "Files error: "+m.fileError)
+			lines = append(lines, m.styles.Error.Render("Files error: "+m.fileError))
 		}
 		if len(m.files) == 0 {
 			lines = append(lines, "", "No readable entries.")
 			return strings.Join(lines, "\n")
 		}
 
-		lines = append(lines, "")
-		for index, entry := range m.files {
-			prefix := "[f]"
-			if entry.IsDir {
-				prefix = "[d]"
-			}
-			cursor := " "
-			if index == m.fileCursor {
-				cursor = ">"
-			}
-			lines = append(lines, cursor+" "+prefix+" "+entry.Name+" "+entry.Mode)
+		lines = append(lines, "", m.renderFilesTable(m.files, m.fileCursor, m.contentWidth()))
+		if selected, ok := m.selectedFileEntry(); ok {
+			lines = append(lines, "", m.styles.Meta.Render("Selected: "+selected.Name))
 		}
 		return strings.Join(lines, "\n")
 	default:
@@ -228,17 +316,79 @@ func (m *Model) activeContent() string {
 	}
 }
 
-func renderTabs(tabs []tab, active int) string {
+func (m *Model) renderTabs(tabs []tab, active int) string {
 	parts := make([]string, 0, len(tabs))
 	for index, tab := range tabs {
 		if index == active {
-			parts = append(parts, "["+tab.title+"]")
+			parts = append(parts, m.styles.ActiveTab.Render("["+tab.title+"]"))
 			continue
 		}
-		parts = append(parts, tab.title)
+		parts = append(parts, m.styles.InactiveTab.Render(tab.title))
 	}
 
 	return strings.Join(parts, " ")
+}
+
+func (m *Model) renderFilesTable(files []domain.FileEntry, selected int, maxWidth int) string {
+	headers := []string{"Type", "Name", "Mode"}
+	widths := []int{4, len("Name"), len("Mode")}
+
+	rows := make([][]string, 0, len(files))
+	for _, entry := range files {
+		entryType := "file"
+		if entry.IsDir {
+			entryType = "dir"
+		}
+		row := []string{entryType, entry.Name, entry.Mode}
+		rows = append(rows, row)
+		for index, value := range row {
+			if len(value) > widths[index] {
+				widths[index] = len(value)
+			}
+		}
+	}
+	widths = fitTableWidths(widths, maxWidth)
+
+	lines := []string{
+		renderTableBorder("top", widths),
+		m.renderTableRow(widths, headers, false),
+		renderTableBorder("middle", widths),
+	}
+	for index, row := range rows {
+		lines = append(lines, m.renderTableRow(widths, row, index == selected))
+	}
+	lines = append(lines, renderTableBorder("bottom", widths))
+	return strings.Join(lines, "\n")
+}
+
+func renderTableBorder(position string, widths []int) string {
+	left, middle, right := "┌", "┬", "┐"
+	switch position {
+	case "middle":
+		left, middle, right = "├", "┼", "┤"
+	case "bottom":
+		left, middle, right = "└", "┴", "┘"
+	}
+
+	parts := make([]string, 0, len(widths))
+	for _, width := range widths {
+		parts = append(parts, strings.Repeat("─", width+2))
+	}
+	return left + strings.Join(parts, middle) + right
+}
+
+func (m *Model) renderTableRow(widths []int, values []string, selected bool) string {
+	cells := make([]string, 0, len(values))
+	for index, value := range values {
+		cell := lipgloss.NewStyle().Width(widths[index]).Render(truncateTableValue(value, widths[index]))
+		cells = append(cells, " "+cell+" ")
+	}
+
+	row := "│" + strings.Join(cells, "│") + "│"
+	if selected {
+		return m.styles.SelectedRow.Render(row)
+	}
+	return row
 }
 
 func (m *Model) ApplyShellLaunchResult(session *domain.ExecSession, err error) {
@@ -338,4 +488,84 @@ func normalizeFiles(currentPath string, files []domain.FileEntry) []domain.FileE
 	})
 
 	return normalized
+}
+
+func (m *Model) contentWidth() int {
+	if m.width <= 0 {
+		return 0
+	}
+	return m.width - m.styles.Panel.GetHorizontalBorderSize()
+}
+
+func fitTableWidths(widths []int, maxWidth int) []int {
+	if maxWidth <= 0 {
+		return widths
+	}
+
+	available := maxWidth - (len(widths)*3 + 1)
+	if available <= 0 {
+		out := make([]int, len(widths))
+		for i := range out {
+			out[i] = 1
+		}
+		return out
+	}
+
+	out := append([]int(nil), widths...)
+	minWidth := 4
+	for intsTotal(out) > available {
+		shrunk := false
+		for i := range out {
+			if out[i] > minWidth && intsTotal(out) > available {
+				out[i]--
+				shrunk = true
+			}
+		}
+		if !shrunk {
+			break
+		}
+	}
+
+	return out
+}
+
+func intsTotal(values []int) int {
+	sum := 0
+	for _, value := range values {
+		sum += value
+	}
+	return sum
+}
+
+func truncateTableValue(value string, width int) string {
+	if width <= 0 {
+		return ""
+	}
+
+	runes := []rune(value)
+	if len(runes) <= width {
+		return value
+	}
+	if width == 1 {
+		return "…"
+	}
+	return string(runes[:width-1]) + "…"
+}
+
+func clipDetailLines(content string, maxHeight int, indicator string) string {
+	if maxHeight <= 0 {
+		return indicator
+	}
+
+	lines := strings.Split(content, "\n")
+	if len(lines) <= maxHeight {
+		return content
+	}
+	if maxHeight == 1 {
+		return indicator
+	}
+
+	clipped := append([]string{}, lines[:maxHeight-1]...)
+	clipped = append(clipped, indicator)
+	return strings.Join(clipped, "\n")
 }

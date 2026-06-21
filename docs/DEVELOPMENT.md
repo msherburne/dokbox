@@ -89,6 +89,9 @@ theme:
 Supported values: `default`, `slate`, `ember`.
 Unknown values fall back to `default`.
 
+For the visual-system roles behind those themes, see
+`docs/TUI_STYLE_GUIDE.md`.
+
 ### Docker environment variables
 
 The Go Docker bootstrap respects standard Docker environment configuration,
